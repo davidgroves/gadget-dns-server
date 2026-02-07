@@ -1,3 +1,11 @@
+# Per-user (user) systemd: put this file in ~/.config/systemd/user/
+# Then: systemctl --user daemon-reload
+#       systemctl --user enable gadget-dns-server.service
+#       systemctl --user start gadget-dns-server.service
+# To run when not logged in: loginctl enable-linger $USER
+#
+# System-wide: put in /etc/systemd/system/ and use systemctl (no --user).
+
 [Unit]
 Description=Gadget DNS server (gadget endpoints, DoT/DoH/DoQ, ACME, DNSSEC)
 Documentation=https://github.com/davidgroves/gadget-dns-server
@@ -6,7 +14,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/gadget-dns-server --config /etc/gadget-dns-server/config.yaml
+ExecStart=/home/gadget-dns/bin/gadget-dns-server --config /home/gadget-dns/etc/config.yaml
 Restart=on-failure
 RestartSec=5
 
@@ -20,4 +28,5 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 
 [Install]
+# For per-user: use WantedBy=default.target instead of multi-user.target
 WantedBy=multi-user.target
