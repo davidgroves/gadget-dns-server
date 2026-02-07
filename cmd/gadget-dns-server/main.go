@@ -94,10 +94,18 @@ func main() {
 	}
 
 	cfg := config.DefaultConfig()
-	if *configPath != "" {
-		if err := config.LoadYAML(&cfg, *configPath); err != nil {
-			fmt.Fprintf(os.Stderr, "config: %v\n", err)
-			os.Exit(1)
+	path := *configPath
+	if path == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, "etc", "config.yaml")
+		}
+	}
+	if path != "" {
+		if err := config.LoadYAML(&cfg, path); err != nil {
+			if *configPath != "" {
+				fmt.Fprintf(os.Stderr, "config: %v\n", err)
+				os.Exit(1)
+			}
 		}
 	}
 	if err := cfg.SetFromEnv(); err != nil {

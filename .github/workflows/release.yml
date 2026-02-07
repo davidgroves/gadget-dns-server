@@ -77,3 +77,41 @@ jobs:
             *.zip
           generate_release_notes: true
           draft: false
+
+  deploy:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: dnssrc.fibrecat.org
+      DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
+      DEPLOY_ARCH: ${{ vars.DEPLOY_ARCH || 'linux/amd64' }}
+    steps:
+      - name: Download release archives
+        uses: actions/download-artifact@v4
+        with:
+          name: release-archives
+
+      - name: Extract deploy binary
+        run: |
+          version="${{ github.ref_name }}"
+          goos=$(echo "${{ env.DEPLOY_ARCH }}" | cut -d/ -f1)
+          goarch=$(echo "${{ env.DEPLOY_ARCH }}" | cut -d/ -f2)
+          tar -xzf "gadget-dns-server_${version}_${goos}_${goarch}.tar.gz"
+          mv "gadget-dns-server-${goos}-${goarch}" gadget-dns-server
+          chmod +x gadget-dns-server
+
+      - name: Set up SSH
+        run: |
+          install -m 600 -D /dev/stdin "$HOME/.ssh/deploy_key" <<< '${{ secrets.DEPLOY_SSH_KEY }}'
+          ssh-keyscan -H "${{ env.DEPLOY_HOST }}" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+
+      - name: Copy binary and restart service
+        run: |
+          scp -i "$HOME/.ssh/deploy_key" -o StrictHostKeyChecking=accept-new gadget-dns-server "${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }}:gadget-dns-server.new"
+          ssh -i "$HOME/.ssh/deploy_key" -o StrictHostKeyChecking=accept-new "${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }}" '
+            sudo mv ~/gadget-dns-server.new /home/gadget-dns/bin/gadget-dns-server &&
+            sudo chmod +x /home/gadget-dns/bin/gadget-dns-server &&
+            sudo setcap "cap_net_bind_service=+ep" /home/gadget-dns/bin/gadget-dns-server &&
+            uid=$(id -u gadget-dns) &&
+            sudo -u gadget-dns env XDG_RUNTIME_DIR=/run/user/$uid systemctl --user restart gadget-dns-server
+          '
