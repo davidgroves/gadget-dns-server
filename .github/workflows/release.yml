@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          version="${{ github.ref_name }}"
+          ldflags="-X main.versionStr=${version}"
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            goos=$(echo "$target" | cut -d/ -f1)
+            goarch=$(echo "$target" | cut -d/ -f2)
+            suffix=""
+            if [ "$goos" = "windows" ]; then suffix=".exe"; fi
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -ldflags "$ldflags" -o "dist/gadget-dns-server-${goos}-${goarch}${suffix}" ./cmd/gadget-dns-server
+          done
+
+      - name: Create archives
+        run: |
+          mkdir -p artifacts
+          version="${{ github.ref_name }}"
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            goos=$(echo "$target" | cut -d/ -f1)
+            goarch=$(echo "$target" | cut -d/ -f2)
+            suffix=""
+            if [ "$goos" = "windows" ]; then suffix=".exe"; fi
+            bin="gadget-dns-server-${goos}-${goarch}${suffix}"
+            if [ "$goos" = "windows" ]; then
+              (cd dist && zip "../artifacts/gadget-dns-server_${version}_${goos}_${goarch}.zip" "$bin")
+            else
+              tar -czf "artifacts/gadget-dns-server_${version}_${goos}_${goarch}.tar.gz" -C dist "$bin"
+            fi
+          done
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-archives
+          path: artifacts/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-archives
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            *.tar.gz
+            *.zip
+          generate_release_notes: true
+          draft: false
