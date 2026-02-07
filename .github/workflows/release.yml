@@ -109,9 +109,9 @@ jobs:
         run: |
           scp -i "$HOME/.ssh/deploy_key" -o StrictHostKeyChecking=accept-new gadget-dns-server "${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }}:gadget-dns-server.new"
           ssh -i "$HOME/.ssh/deploy_key" -o StrictHostKeyChecking=accept-new "${{ env.DEPLOY_USER }}@${{ env.DEPLOY_HOST }}" '
-            sudo mv ~/gadget-dns-server.new /home/gadget-dns/bin/gadget-dns-server &&
-            sudo chmod +x /home/gadget-dns/bin/gadget-dns-server &&
+            mv ~/gadget-dns-server.new /home/gadget-dns/bin/gadget-dns-server &&
+            chmod +x /home/gadget-dns/bin/gadget-dns-server &&
             sudo setcap "cap_net_bind_service=+ep" /home/gadget-dns/bin/gadget-dns-server &&
             uid=$(id -u gadget-dns) &&
-            sudo -u gadget-dns env XDG_RUNTIME_DIR=/run/user/$uid systemctl --user restart gadget-dns-server
+            systemctl --user restart gadget-dns-server
           '
