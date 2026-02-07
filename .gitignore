@@ -40,3 +40,5 @@ go.work.sum
 *.pem
 *.crt
 .DS_Store
+
+/gadget-dns-server
