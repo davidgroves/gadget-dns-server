@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,6 +41,7 @@ func TestParseServerIPs_Invalid(t *testing.T) {
 func TestConfig_Validate_ObtainCert(t *testing.T) {
 	c := DefaultConfig()
 	c.ObtainCert = true
+	c.Domain = "example.com"
 	c.ACMEDomains = []string{"example.com"}
 	c.TLSCert = "/tmp/cert.pem"
 	c.TLSKey = "/tmp/key.pem"
@@ -51,6 +53,7 @@ func TestConfig_Validate_ObtainCert(t *testing.T) {
 func TestConfig_Validate_ObtainCert_MissingDomain(t *testing.T) {
 	c := DefaultConfig()
 	c.ObtainCert = true
+	c.ACMEDomains = []string{"example.com"}
 	c.TLSCert = "/tmp/cert.pem"
 	c.TLSKey = "/tmp/key.pem"
 	if err := c.Validate(); err == nil {
@@ -122,5 +125,54 @@ func TestLoadYAML_Valid(t *testing.T) {
 	}
 	if c.HTTPPort != 9000 {
 		t.Errorf("HTTPPort=%d", c.HTTPPort)
+	}
+}
+
+func TestConfig_listenAddrs_dualStack(t *testing.T) {
+	c := DefaultConfig()
+	c.Ports.UDP = 53
+	c.Binds = []string{"0.0.0.0", "::"}
+	addrs := c.UDPAddrs()
+	if len(addrs) != 1 || addrs[0] != ":53" {
+		t.Errorf("dual-stack binds 0.0.0.0 and :: should collapse to single :53, got %v", addrs)
+	}
+}
+
+func TestEffectiveServerIPs_Explicit(t *testing.T) {
+	c := DefaultConfig()
+	c.ServerIPs = IPList{net.ParseIP("192.0.2.1"), net.ParseIP("2001:db8::1")}
+	ips, err := c.EffectiveServerIPs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ips) != 2 || ips[0].String() != "192.0.2.1" || ips[1].String() != "2001:db8::1" {
+		t.Errorf("EffectiveServerIPs with ServerIPs set: got %v", ips)
+	}
+}
+
+func TestEffectiveServerIPs_FromBinds(t *testing.T) {
+	c := DefaultConfig()
+	c.Binds = []string{"192.0.2.1", "2001:db8::1"}
+	ips, err := c.EffectiveServerIPs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ips) != 2 || ips[0].String() != "192.0.2.1" || ips[1].String() != "2001:db8::1" {
+		t.Errorf("EffectiveServerIPs from binds: got %v", ips)
+	}
+}
+
+func TestEffectiveServerIPs_WildcardBindsFallsBackToInterfaces(t *testing.T) {
+	c := DefaultConfig()
+	c.Binds = []string{"0.0.0.0", "::"}
+	ips, err := c.EffectiveServerIPs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should get at least loopback excluded; may be empty on isolated test env
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+			t.Errorf("EffectiveServerIPs from interfaces should not include loopback/link-local, got %s", ip)
+		}
 	}
 }

@@ -8,22 +8,19 @@ import (
 	"github.com/miekg/dns"
 )
 
-// serveDoT starts a DNS over TLS listener. It blocks until the listener fails.
-func serveDoT(h dns.Handler, port int, tlsCert, tlsKey string) error {
-	if port <= 0 {
-		port = 853
-	}
+// serveDoT starts a DNS over TLS listener on addr. It blocks until the listener fails.
+func serveDoT(h dns.Handler, addr, tlsCert, tlsKey string) error {
 	cert, err := tls.LoadX509KeyPair(tlsCert, tlsKey)
 	if err != nil {
 		return fmt.Errorf("dot tls: %w", err)
 	}
-	addr := ResolveAddr("", port)
-	listener, err := tls.Listen("tcp", addr, &tls.Config{Certificates: []tls.Certificate{cert}})
+	network := tcpNetwork(addr)
+	listener, err := tls.Listen(network, addr, &tls.Config{Certificates: []tls.Certificate{cert}})
 	if err != nil {
-		return fmt.Errorf("dot listen: %w", err)
+		return fmt.Errorf("dot listen %s: %w", addr, err)
 	}
 	defer listener.Close()
-	logging.Info("DoT listening", "port", port)
+	logging.Info("DoT listening", "addr", addr)
 	srv := &dns.Server{Listener: listener, Handler: h}
 	return srv.ActivateAndServe()
 }

@@ -18,12 +18,14 @@ type Config struct {
 	// UDP/TCP
 	UDPAddrs []string
 	TCPAddrs []string
-	// TLS transports (0 = disabled)
-	DOTPort int
-	DOHPort int
-	DOQPort int
-	TLSCert string
-	TLSKey  string
+	// TLS transports (listen addrs, e.g. "0.0.0.0:853", "[::]:853")
+	DOTAddrs []string
+	DOHAddrs []string
+	DOQAddrs []string
+	TLSCert  string
+	TLSKey   string
+	// Optional metrics recorder for DNS requests (UDP/TCP/DoT/DoQ use handler's; DoH dedicated port uses this)
+	MetricsRecorder handler.MetricsRecorder
 }
 
 // Server runs UDP, TCP, and optionally DoT/DoH/DoQ listeners.
@@ -52,7 +54,8 @@ func (s *Server) Start() error {
 		if err != nil {
 			return fmt.Errorf("resolve udp %s: %w", addr, err)
 		}
-		conn, err := net.ListenUDP("udp", udpAddr)
+		network := udpNetwork(udpAddr)
+		conn, err := net.ListenUDP(network, udpAddr)
 		if err != nil {
 			return fmt.Errorf("udp listen %s: %w", addr, err)
 		}
@@ -64,7 +67,8 @@ func (s *Server) Start() error {
 	}
 
 	for _, addr := range s.cfg.TCPAddrs {
-		l, err := net.Listen("tcp", addr)
+		network := tcpNetwork(addr)
+		l, err := net.Listen(network, addr)
 		if err != nil {
 			return fmt.Errorf("tcp listen %s: %w", addr, err)
 		}
@@ -75,24 +79,29 @@ func (s *Server) Start() error {
 		logging.Info("TCP listening", "addr", addr)
 	}
 
-	if s.cfg.DOTPort > 0 && s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
-		go func() {
-			if err := serveDoT(&transportHandler{transport: "DoT", handler: s.cfg.Handler}, s.cfg.DOTPort, s.cfg.TLSCert, s.cfg.TLSKey); err != nil {
-				logging.Error("DoT server failed", "err", err)
-			}
-		}()
+	if s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
+		for _, addr := range s.cfg.DOTAddrs {
+			addr := addr
+			go func() {
+				if err := serveDoT(&transportHandler{transport: "DoT", handler: s.cfg.Handler}, addr, s.cfg.TLSCert, s.cfg.TLSKey); err != nil {
+					logging.Error("DoT server failed", "addr", addr, "err", err)
+				}
+			}()
+		}
+		for _, addr := range s.cfg.DOQAddrs {
+			addr := addr
+			go func() {
+				if err := serveDoQ(context.Background(), s.cfg.Handler, addr, s.cfg.TLSCert, s.cfg.TLSKey); err != nil {
+					logging.Error("DoQ server failed", "addr", addr, "err", err)
+				}
+			}()
+		}
 	}
-	if s.cfg.DOHPort > 0 {
+	for _, addr := range s.cfg.DOHAddrs {
+		addr := addr
 		go func() {
-			if err := serveDoH(s.cfg.Handler, s.cfg.DOHPort, s.cfg.TLSCert, s.cfg.TLSKey); err != nil {
-				logging.Error("DoH server failed", "err", err)
-			}
-		}()
-	}
-	if s.cfg.DOQPort > 0 && s.cfg.TLSCert != "" && s.cfg.TLSKey != "" {
-		go func() {
-			if err := serveDoQ(context.Background(), s.cfg.Handler, s.cfg.DOQPort, s.cfg.TLSCert, s.cfg.TLSKey); err != nil {
-				logging.Error("DoQ server failed", "err", err)
+			if err := serveDoH(s.cfg.Handler, addr, s.cfg.TLSCert, s.cfg.TLSKey, s.cfg.MetricsRecorder); err != nil {
+				logging.Error("DoH server failed", "addr", addr, "err", err)
 			}
 		}()
 	}
@@ -136,4 +145,38 @@ func ResolveAddr(host string, port int) string {
 		return ":" + strconv.Itoa(port)
 	}
 	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+// udpNetwork returns "udp6", "udp4", or "udp". Use udp4/udp6 when binding both 0.0.0.0 and [::]
+// so they don't conflict on Linux (IPv6 socket is v6-only); use "udp" for unspecified.
+func udpNetwork(addr *net.UDPAddr) string {
+	if addr.IP == nil {
+		return "udp"
+	}
+	if addr.IP.To4() == nil {
+		return "udp6"
+	}
+	return "udp4"
+}
+
+// tcpNetwork returns "tcp6", "tcp4", or "tcp". Use tcp4/tcp6 when binding both 0.0.0.0 and [::]
+// so they don't conflict on Linux; use "tcp" for a single unspecified address (e.g. ":53").
+func tcpNetwork(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "tcp"
+	}
+	if host == "" {
+		return "tcp"
+	}
+	if host == "::" {
+		return "tcp6"
+	}
+	if host == "0.0.0.0" {
+		return "tcp4"
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		return "tcp6"
+	}
+	return "tcp4"
 }

@@ -161,7 +161,15 @@ func loadOrCreateAccountKey(path string) (crypto.Signer, error) {
 		if err != nil {
 			keyRSA, errRSA := x509.ParsePKCS1PrivateKey(block.Bytes)
 			if errRSA != nil {
-				return nil, fmt.Errorf("parse account key: %w", err)
+				keyAny, errPKCS8 := x509.ParsePKCS8PrivateKey(block.Bytes)
+				if errPKCS8 != nil {
+					return nil, fmt.Errorf("parse account key: %w", err)
+				}
+				signer, ok := keyAny.(crypto.Signer)
+				if !ok {
+					return nil, fmt.Errorf("account key is not a supported signer type")
+				}
+				return signer, nil
 			}
 			return keyRSA, nil
 		}

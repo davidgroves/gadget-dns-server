@@ -18,36 +18,16 @@ The config is compatible with the standard [pre-commit](https://pre-commit.com/)
 go test ./...
 ```
 
-## Project layout
+Integration tests against a live server (UDP, TCP, DoT, DoH, DoQ): run `./integration-tests.sh`. The server must already be running. Set `GADGET_DNS_SERVER`, `GADGET_DNS_ZONE`, and optional port env vars (see `./integration-tests.sh --help`). DoQ tests require [doggo](https://github.com/mr-karan/doggo).
 
-- `cmd/gadget-dns-server/` — main entrypoint, config (CLI/env/YAML), server startup
-- `internal/config/` — config struct, YAML load, env overlay
-- `internal/handler/` — gadget DNS responses and zone apex
-- `internal/server/` — UDP, TCP, DoT, DoH, DoQ listeners
-- `internal/httpapi/` — HTTP server: `/`, ACME challenge, /healthcheck, /metrics, /feed
-- `internal/acme/` — ACME obtain-cert and cert expiry
-- `internal/dnssec/` — KSK/ZSK, signer, NSEC, CDS
-- `internal/logging/` — JSON slog
-- `examples/` — example config and usage
+## set-cookie (hex value)
+
+RFC 7873 requires the EDNS Cookie option to be 16 bytes (8-byte client + 8-byte server). The value after `set-cookie-` is **hex text** used directly (e.g. 32 hex chars = 16 bytes). For a valid packet use 32 hex characters (e.g. `set-cookie-24a5ac12345678901234567890123456`). Invalid hex (odd length or non-hex) returns NXDOMAIN. **Short valid hex (e.g. `set-cookie-616263`) intentionally emits a malformed packet**—useful for testing validators or clients.
+
+## qname-min
+
+The `*.qname-min.<zone>` endpoint is for QNAME minimization testing (RFC 7816). The canonical test name uses the 5th label `zzzzzzz` (late in the NSEC order). Querying e.g. `a.b.c.d.zzzzzzz.qname-min.<zone>` returns the QNAME received and the sequence of qnames the server saw (oldest first), with the number of requests—e.g. qname-min, then zzzzzzz.qname-min, then d.zzzzzzz.qname-min.
 
 ## Deployment
 
-Pushing a tag `v*` runs the Release workflow: build, release, then deploy to `dnssrc.fibrecat.org`.
-
-**Required:** Add your SSH private key as a repo secret:
-
-```bash
-gh secret set DEPLOY_SSH_KEY --repo owner/gadget-dns-server < /path/to/deploy_key
-```
-
-**On the server:** Put the matching public key in the deploy user’s `~/.ssh/authorized_keys`. The deploy user must be able to run (e.g. via sudoers) without a password:
-
-- `sudo mv ~/gadget-dns-server.new /home/gadget-dns/bin/gadget-dns-server`
-- `sudo chmod +x /home/gadget-dns/bin/gadget-dns-server`
-- `sudo setcap "cap_net_bind_service=+ep" /home/gadget-dns/bin/gadget-dns-server`
-- `sudo -u gadget-dns env XDG_RUNTIME_DIR=/run/user/$(id -u gadget-dns) systemctl --user restart gadget-dns-server`
-
-**Optional repo variables** (Settings → Secrets and variables → Actions → Variables):
-
-- `DEPLOY_USER` — SSH user (default: `deploy`)
-- `DEPLOY_ARCH` — `linux/amd64` or `linux/arm64` (default: `linux/amd64`)
+Pushing a tag `v*` runs the Release workflow.

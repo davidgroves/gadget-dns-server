@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -18,7 +19,9 @@ import (
 	"github.com/davidgroves/gadget-dns-server/internal/handler"
 	"github.com/davidgroves/gadget-dns-server/internal/httpapi"
 	"github.com/davidgroves/gadget-dns-server/internal/logging"
+	"github.com/davidgroves/gadget-dns-server/internal/metrics"
 	"github.com/davidgroves/gadget-dns-server/internal/server"
+	"github.com/davidgroves/gadget-dns-server/internal/setup"
 	"github.com/miekg/dns"
 )
 
@@ -65,11 +68,12 @@ var (
 	obtainCert           = flag.Bool("obtain-cert", false, "obtain ACME certificate and exit")
 	configPath           = flag.String("config", "", "path to YAML config file")
 	domain               = flag.String("domain", "", "zone domain (required for server)")
-	udpAddrs             = flag.String("udp", ":53", "comma-separated UDP listen addresses")
-	tcpAddrs             = flag.String("tcp", "", "comma-separated TCP listen addresses (default: same as udp)")
+	udpPort              = flag.Int("udp-port", 0, "UDP port (0=use config default)")
+	tcpPort              = flag.Int("tcp-port", 0, "TCP port (0=use config default)")
 	dotPort              = flag.Int("dot-port", 0, "DoT port (0=disabled)")
 	dohPort              = flag.Int("doh-port", 0, "DoH port (0=disabled)")
 	doqPort              = flag.Int("doq-port", 0, "DoQ port (0=disabled)")
+	binds                = flag.String("bind", "", "comma-separated bind addresses (e.g. 0.0.0.0,::); empty=all")
 	tlsCert              = flag.String("tls-cert", "", "TLS certificate file")
 	tlsKey               = flag.String("tls-key", "", "TLS key file")
 	httpPort             = flag.Int("http-port", 80, "HTTP port for ACME/health/metrics/feed")
@@ -101,10 +105,19 @@ func main() {
 		}
 	}
 	if path != "" {
-		if err := config.LoadYAML(&cfg, path); err != nil {
+		if _, err := os.Stat(path); err != nil {
 			if *configPath != "" {
 				fmt.Fprintf(os.Stderr, "config: %v\n", err)
 				os.Exit(1)
+			}
+			path = "" // skip load when default path is missing
+		}
+		if path != "" {
+			if err := config.LoadYAML(&cfg, path); err != nil {
+				if *configPath != "" {
+					fmt.Fprintf(os.Stderr, "config: %v\n", err)
+					os.Exit(1)
+				}
 			}
 		}
 	}
@@ -112,65 +125,110 @@ func main() {
 		fmt.Fprintf(os.Stderr, "config env: %v\n", err)
 		os.Exit(1)
 	}
-	// CLI overrides
-	if *domain != "" {
-		cfg.Domain = *domain
-	}
-	if *udpAddrs != "" {
-		cfg.UDPAddrs = config.SplitTrim(*udpAddrs, ",")
-	}
-	if *tcpAddrs != "" {
-		cfg.TCPAddrs = config.SplitTrim(*tcpAddrs, ",")
-	} else if *udpAddrs != "" {
-		cfg.TCPAddrs = config.SplitTrim(*udpAddrs, ",")
-	}
-	if *dotPort != 0 {
-		cfg.DOTPort = *dotPort
-	}
-	if *dohPort != 0 {
-		cfg.DOHPort = *dohPort
-	}
-	if *doqPort != 0 {
-		cfg.DOQPort = *doqPort
-	}
-	if *tlsCert != "" {
-		cfg.TLSCert = *tlsCert
-	}
-	if *tlsKey != "" {
-		cfg.TLSKey = *tlsKey
-	}
-	if *httpPort != 0 {
-		cfg.HTTPPort = *httpPort
-	}
-	if *acmeDomains != "" {
-		cfg.ACMEDomains = config.SplitTrim(*acmeDomains, ",")
-	}
-	if *acmeAccount != "" {
-		cfg.ACMEAccountKey = *acmeAccount
-	}
-	if *acmeURL != "" {
-		cfg.ACMEURL = *acmeURL
-	}
-	if *logLevel != "" {
-		cfg.LogLevel = *logLevel
-	}
-	if *obtainCert {
-		cfg.ObtainCert = true
-	}
-	if *dnssecEnable {
-		cfg.DNSSEC = true
-	}
-	if *dnssecKSK != "" {
-		cfg.DNSSECKSKPath = *dnssecKSK
-	}
-	if *dnssecZSK != "" {
-		cfg.DNSSECZSKPath = *dnssecZSK
-	}
-	if *dnssecRRSIGInception != "" {
-		cfg.DNSSECRRSIGInception = *dnssecRRSIGInception
-	}
-	if *dnssecRRSIGValidity != "" {
-		cfg.DNSSECRRSIGValidity = *dnssecRRSIGValidity
+	// CLI overrides (table-driven)
+	for _, apply := range []func(){
+		func() {
+			if *domain != "" {
+				cfg.Domain = *domain
+			}
+		},
+		func() {
+			if *udpPort != 0 {
+				cfg.Ports.UDP = *udpPort
+			}
+		},
+		func() {
+			if *tcpPort != 0 {
+				cfg.Ports.TCP = *tcpPort
+			}
+		},
+		func() {
+			if *dotPort != 0 {
+				cfg.Ports.DoT = *dotPort
+			}
+		},
+		func() {
+			if *dohPort != 0 {
+				cfg.Ports.DoH = *dohPort
+			}
+		},
+		func() {
+			if *doqPort != 0 {
+				cfg.Ports.DoQ = *doqPort
+			}
+		},
+		func() {
+			if *binds != "" {
+				cfg.Binds = config.SplitTrim(*binds, ",")
+			}
+		},
+		func() {
+			if *tlsCert != "" {
+				cfg.TLSCert = *tlsCert
+			}
+		},
+		func() {
+			if *tlsKey != "" {
+				cfg.TLSKey = *tlsKey
+			}
+		},
+		func() {
+			if *httpPort != 0 {
+				cfg.HTTPPort = *httpPort
+			}
+		},
+		func() {
+			if *acmeDomains != "" {
+				cfg.ACMEDomains = config.SplitTrim(*acmeDomains, ",")
+			}
+		},
+		func() {
+			if *acmeAccount != "" {
+				cfg.ACMEAccountKey = *acmeAccount
+			}
+		},
+		func() {
+			if *acmeURL != "" {
+				cfg.ACMEURL = *acmeURL
+			}
+		},
+		func() {
+			if *logLevel != "" {
+				cfg.LogLevel = *logLevel
+			}
+		},
+		func() {
+			if *obtainCert {
+				cfg.ObtainCert = true
+			}
+		},
+		func() {
+			if *dnssecEnable {
+				cfg.DNSSEC = true
+			}
+		},
+		func() {
+			if *dnssecKSK != "" {
+				cfg.DNSSECKSKPath = *dnssecKSK
+			}
+		},
+		func() {
+			if *dnssecZSK != "" {
+				cfg.DNSSECZSKPath = *dnssecZSK
+			}
+		},
+		func() {
+			if *dnssecRRSIGInception != "" {
+				cfg.DNSSECRRSIGInception = *dnssecRRSIGInception
+			}
+		},
+		func() {
+			if *dnssecRRSIGValidity != "" {
+				cfg.DNSSECRRSIGValidity = *dnssecRRSIGValidity
+			}
+		},
+	} {
+		apply()
 	}
 
 	level, _ := logging.ParseLevel(cfg.LogLevel)
@@ -207,17 +265,48 @@ func main() {
 	}
 
 	if cfg.ObtainCert {
+		if err := cfg.Validate(); err != nil {
+			fmt.Fprintf(os.Stderr, "obtain-cert: %v (set domain, acme_domains and tls_cert/tls_key in config or use CLI flags)\n", err)
+			os.Exit(1)
+		}
+		// Start DNS first so Let's Encrypt can resolve our names (e.g. diag.<zone>).
+		// Then start HTTP on port 80 for ACME HTTP-01. No TLS listeners (we don't have certs yet).
+		obtainSigner, err := setup.NewSignerFromConfig(&cfg, false)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "obtain-cert load signer: %v\n", err)
+			os.Exit(1)
+		}
+		serverIPs, err := cfg.EffectiveServerIPs()
+		if err != nil {
+			logging.Warn("obtain-cert: could not derive server IPs, apex/www/diag A/AAAA may be missing", "err", err)
+		}
+		obtainHandler := handler.New(setup.HandlerConfigFrom(&cfg, serverIPs, obtainSigner, handler.Config{}))
+		obtainDNS := server.New(server.Config{
+			Handler:         obtainHandler,
+			UDPAddrs:        cfg.UDPAddrs(),
+			TCPAddrs:        cfg.TCPAddrs(),
+			DOTAddrs:        nil,
+			DOHAddrs:        nil,
+			DOQAddrs:        nil,
+			TLSCert:         "",
+			TLSKey:          "",
+			MetricsRecorder: nil,
+		})
+		if err := obtainDNS.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "obtain-cert DNS: %v\n", err)
+			os.Exit(1)
+		}
+		defer obtainDNS.Close()
 		acmeResp := httpapi.NewACMEResponder()
 		routes := httpapi.NewRoutes(acmeResp, httpapi.NewFeed(100))
 		srv := httpapi.NewServer(cfg.HTTPPort, routes)
-		srv.TLSPort = cfg.HTTPTLSPort
-		srv.TLSCert = cfg.TLSCert
-		srv.TLSKey = cfg.TLSKey
 		if err := srv.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "http server: %v\n", err)
+			fmt.Fprintf(os.Stderr, "obtain-cert needs port %d for ACME HTTP-01; stop any service using it and retry.\n", cfg.HTTPPort)
 			os.Exit(1)
 		}
 		time.Sleep(500 * time.Millisecond)
+		logging.Info("obtain-cert: DNS and HTTP up; running ACME", "domain", cfg.Domain)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		if err := acme.Obtain(ctx, acme.ObtainConfig{
@@ -239,47 +328,45 @@ func main() {
 		os.Exit(1)
 	}
 
-	var signer handler.Signer
-	if cfg.DNSSEC && cfg.DNSSECKSKPath != "" && cfg.DNSSECZSKPath != "" {
-		zone := dns.Fqdn(cfg.Domain)
-		ksk, err := dnssec.LoadKeyPair(zone, cfg.DNSSECKSKPath, 0, true)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "load KSK: %v\n", err)
-			os.Exit(1)
-		}
-		zsk, err := dnssec.LoadKeyPair(zone, cfg.DNSSECZSKPath, 0, false)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "load ZSK: %v\n", err)
-			os.Exit(1)
-		}
-		inception := config.ParseRRSIGDuration(cfg.DNSSECRRSIGInception, time.Hour)
-		validity := config.ParseRRSIGDuration(cfg.DNSSECRRSIGValidity, 24*time.Hour)
-		signer = dnssec.NewSigner(cfg.Domain, ksk, zsk, dnssec.WithRRSIGValidity(inception, validity))
+	signer, err := setup.NewSignerFromConfig(&cfg, true)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "load signer: %v\n", err)
+		os.Exit(1)
 	}
 
-	diagStore := httpapi.NewDiagStore(100)
+	serverIPs, err := cfg.EffectiveServerIPs()
+	if err != nil {
+		logging.Warn("could not derive server IPs from binds/interfaces, apex/www/diag will have no A/AAAA", "err", err)
+	}
+	diagRetention := config.ParseDiagRetention(cfg.DiagRetention)
+	diagStore := httpapi.NewDiagStore(100, diagRetention)
 	diagRecorder := &diagRecorderAdapter{store: diagStore}
 
-	h := handler.New(handler.Config{
-		Domain:       cfg.Domain,
-		NSRecords:    cfg.NSRecords,
-		ServerIPs:    cfg.ServerIPs,
-		SOAMname:     cfg.SOAMname,
-		SOARname:     cfg.SOARname,
-		SOASerial:    cfg.SOASerial,
-		SOARefresh:   cfg.SOARefresh,
-		SOARetry:     cfg.SOARetry,
-		SOAExpire:    cfg.SOAExpire,
-		SOAMinttl:    cfg.SOAMinttl,
-		Signer:       signer,
-		DiagRecorder: diagRecorder,
-	})
+	entropyStore := httpapi.NewEntropyStore(100, 10*time.Minute, httpapi.EntropyNSamples)
+	entropyRecorder := &entropyRecorderAdapter{store: entropyStore}
+
+	qnameMinStore := handler.NewQnameMinStore(60*time.Second, 50)
+
+	metricsRecorder := metrics.NewRecorder()
+	h := handler.New(setup.HandlerConfigFrom(&cfg, serverIPs, signer, handler.Config{
+		DiagRecorder:     diagRecorder,
+		EntropyRecorder:  entropyRecorder,
+		QnameMinRecorder: qnameMinStore,
+		MetricsRecorder:  metricsRecorder,
+	}))
 
 	feed := httpapi.NewFeed(1000)
 	acmeResp := httpapi.NewACMEResponder()
 	routes := httpapi.NewRoutes(acmeResp, feed)
 	routes.DiagStore = diagStore
 	routes.DiagDomain = cfg.Domain
+	routes.EntropyStore = entropyStore
+	// When DoH port equals HTTP TLS port, serve DoH on the same server (avoid binding 443 twice)
+	dohAddrs := cfg.DOHAddrs()
+	if cfg.Ports.DoH == cfg.HTTPTLSPort && cfg.HTTPTLSPort > 0 && cfg.TLSCert != "" && cfg.TLSKey != "" {
+		routes.DoHHandler = server.DoHHandler(h, metricsRecorder)
+		dohAddrs = nil
+	}
 	httpSrv := httpapi.NewServer(cfg.HTTPPort, routes)
 	httpSrv.TLSPort = cfg.HTTPTLSPort
 	httpSrv.TLSCert = cfg.TLSCert
@@ -290,14 +377,15 @@ func main() {
 	}
 
 	dnsSrv := server.New(server.Config{
-		Handler:  h,
-		UDPAddrs: cfg.UDPAddrs,
-		TCPAddrs: cfg.TCPAddrs,
-		DOTPort:  cfg.DOTPort,
-		DOHPort:  cfg.DOHPort,
-		DOQPort:  cfg.DOQPort,
-		TLSCert:  cfg.TLSCert,
-		TLSKey:   cfg.TLSKey,
+		Handler:         h,
+		UDPAddrs:        cfg.UDPAddrs(),
+		TCPAddrs:        cfg.TCPAddrs(),
+		DOTAddrs:        cfg.DOTAddrs(),
+		DOHAddrs:        dohAddrs,
+		DOQAddrs:        cfg.DOQAddrs(),
+		TLSCert:         cfg.TLSCert,
+		TLSKey:          cfg.TLSKey,
+		MetricsRecorder: metricsRecorder,
 	})
 	if err := dnsSrv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "dns server: %v\n", err)
@@ -315,22 +403,101 @@ func main() {
 	dnsSrv.Close()
 }
 
-// diagRecorderAdapter implements handler.DiagRecorder by pushing to httpapi.DiagStore.
-type diagRecorderAdapter struct {
-	store *httpapi.DiagStore
+// diagSessionTTL is how long a client is considered "in diag session" after a token.diag query (for attaching related queries).
+const diagSessionTTL = 30 * time.Second
+
+type diagSessionEntry struct {
+	token string
+	until time.Time
 }
 
-func (a *diagRecorderAdapter) RecordDiag(token string, qname string, qtype uint16, clientAddr string, transport string) {
-	qtypeStr := dns.TypeToString[qtype]
-	if qtypeStr == "" {
-		qtypeStr = fmt.Sprintf("TYPE%d", qtype)
+// diagRecorderAdapter implements handler.DiagRecorder and handler.RelatedRecorder by pushing to httpapi.DiagStore.
+type diagRecorderAdapter struct {
+	store   *httpapi.DiagStore
+	mu      sync.Mutex
+	session map[string]diagSessionEntry // clientAddr -> token + expiry
+}
+
+func (a *diagRecorderAdapter) RecordDiag(token string, req *dns.Msg, resp *dns.Msg, clientAddr string, transport string) {
+	var qname, qtypeStr string
+	if len(req.Question) > 0 {
+		q := req.Question[0]
+		qname = q.Name
+		qtypeStr = dns.TypeToString[q.Qtype]
+		if qtypeStr == "" {
+			qtypeStr = fmt.Sprintf("TYPE%d", q.Qtype)
+		}
+	}
+	var reqWire, respWire []byte
+	if req != nil {
+		reqWire, _ = req.Pack()
+	}
+	if resp != nil {
+		respWire, _ = resp.Pack()
 	}
 	a.store.Record(token, httpapi.Event{
-		Qname:      qname,
-		Qtype:      qtypeStr,
-		ClientAddr: clientAddr,
-		Transport:  transport,
+		Qname:        qname,
+		Qtype:        qtypeStr,
+		ClientAddr:   clientAddr,
+		Transport:    transport,
+		RequestWire:  reqWire,
+		ResponseWire: respWire,
 	})
+	a.mu.Lock()
+	if a.session == nil {
+		a.session = make(map[string]diagSessionEntry)
+	}
+	a.session[clientAddr] = diagSessionEntry{token: token, until: time.Now().Add(diagSessionTTL)}
+	a.mu.Unlock()
+}
+
+func (a *diagRecorderAdapter) RecordRelatedIfInSession(clientAddr string, req *dns.Msg, resp *dns.Msg, transport string) {
+	a.mu.Lock()
+	ent, ok := a.session[clientAddr]
+	now := time.Now()
+	if !ok || now.After(ent.until) {
+		if ok {
+			delete(a.session, clientAddr)
+		}
+		a.mu.Unlock()
+		return
+	}
+	token := ent.token
+	a.mu.Unlock()
+
+	var qname, qtypeStr string
+	if len(req.Question) > 0 {
+		q := req.Question[0]
+		qname = q.Name
+		qtypeStr = dns.TypeToString[q.Qtype]
+		if qtypeStr == "" {
+			qtypeStr = fmt.Sprintf("TYPE%d", q.Qtype)
+		}
+	}
+	var reqWire, respWire []byte
+	if req != nil {
+		reqWire, _ = req.Pack()
+	}
+	if resp != nil {
+		respWire, _ = resp.Pack()
+	}
+	a.store.AppendRelated(token, clientAddr, httpapi.Event{
+		Qname:        qname,
+		Qtype:        qtypeStr,
+		ClientAddr:   clientAddr,
+		Transport:    transport,
+		RequestWire:  reqWire,
+		ResponseWire: respWire,
+	})
+}
+
+// entropyRecorderAdapter implements handler.EntropyRecorder by recording to httpapi.EntropyStore.
+type entropyRecorderAdapter struct {
+	store *httpapi.EntropyStore
+}
+
+func (a *entropyRecorderAdapter) RecordEntropy(runId string, clientAddr string, sourcePort int, transactionID uint16, qname string) {
+	a.store.Record(runId, sourcePort, transactionID, qname)
 }
 
 func runRenewal(cfg config.Config, responder *httpapi.ACMEResponder) {

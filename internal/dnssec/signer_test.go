@@ -25,6 +25,7 @@ func TestSigner_SignResponse_SOA(t *testing.T) {
 
 	req := new(dns.Msg)
 	req.SetQuestion("example.com.", dns.TypeSOA)
+	req.SetEdns0(4096, true) // DO bit so signer adds RRSIG
 	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
 	msg := h.Handle(req, addr, "")
 	if msg.Rcode != dns.RcodeSuccess {
@@ -59,6 +60,7 @@ func TestSigner_SignResponse_NXDOMAIN_NSEC(t *testing.T) {
 
 	req := new(dns.Msg)
 	req.SetQuestion("nonexistent.example.com.", dns.TypeA)
+	req.SetEdns0(4096, true) // DO bit so signer adds NSEC/RRSIG
 	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
 	msg := h.Handle(req, addr, "")
 	if msg.Rcode != dns.RcodeNameError {
@@ -85,11 +87,15 @@ func TestSigner_SignResponse_NXDOMAIN_Direct(t *testing.T) {
 	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
 	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
 	signer := NewSigner("example.com", ksk, zsk)
+	req := new(dns.Msg)
+	req.SetQuestion("nonexistent.example.com.", dns.TypeA)
+	req.SetEdns0(4096, true) // DO bit so signer adds NSEC/RRSIG
 	msg := new(dns.Msg)
+	msg.SetReply(req)
 	msg.SetQuestion("nonexistent.example.com.", dns.TypeA)
 	msg.Rcode = dns.RcodeNameError
 	msg.Ns = []dns.RR{}
-	err := signer.SignResponse(msg, "nonexistent.example.com.", dns.TypeA)
+	err := signer.SignResponse(msg, req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,6 +116,155 @@ func TestSigner_SignResponse_NXDOMAIN_Direct(t *testing.T) {
 	}
 }
 
+// TestSigner_SignResponse_NXDOMAIN_WildcardCover verifies RFC 4035 §3.1.3.2: NXDOMAIN response
+// includes an NSEC that covers the wildcard (*.<zone>) so validators can prove no wildcard match.
+func TestSigner_SignResponse_NXDOMAIN_WildcardCover(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	req := new(dns.Msg)
+	req.SetQuestion("tp49w.nkmra.example.com.", dns.TypeA)
+	req.SetEdns0(4096, true)
+	msg := new(dns.Msg)
+	msg.SetReply(req)
+	msg.SetQuestion("tp49w.nkmra.example.com.", dns.TypeA)
+	msg.Rcode = dns.RcodeNameError
+	msg.Ns = []dns.RR{}
+	err := signer.SignResponse(msg, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wildcardFQDN := "*.example.com."
+	var foundWildcardNSEC bool
+	for _, rr := range msg.Ns {
+		nsec, ok := rr.(*dns.NSEC)
+		if !ok {
+			continue
+		}
+		// RFC 4035 §3.1.3.2: need an NSEC where owner < *.zone < next
+		if nsec.Hdr.Name < wildcardFQDN && wildcardFQDN < nsec.NextDomain {
+			foundWildcardNSEC = true
+			break
+		}
+	}
+	if !foundWildcardNSEC {
+		t.Error("NXDOMAIN response must include an NSEC that covers the wildcard (*.example.com.); see RFC 4035 §3.1.3.2")
+	}
+}
+
+// TestSigner_SignResponse_NXDOMAIN_SnameCover verifies RFC 4035 §3.1.3.2: NXDOMAIN response
+// includes an NSEC that covers the SNAME (qname) in canonical order so validators accept the proof.
+func TestSigner_SignResponse_NXDOMAIN_SnameCover(t *testing.T) {
+	ksk, _ := GenerateKeyPair("dnssrc.fibrecat.org.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("dnssrc.fibrecat.org.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("dnssrc.fibrecat.org", ksk, zsk)
+	req := new(dns.Msg)
+	qname := "ixcuh.pq2ws.dnssrc.fibrecat.org."
+	req.SetQuestion(qname, dns.TypeA)
+	req.SetEdns0(4096, true)
+	msg := new(dns.Msg)
+	msg.SetReply(req)
+	msg.SetQuestion(qname, dns.TypeA)
+	msg.Rcode = dns.RcodeNameError
+	msg.Ns = []dns.RR{}
+	err := signer.SignResponse(msg, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Validator checks: some NSEC (owner, next) must satisfy owner < qname < next in canonical order.
+	var foundCover bool
+	for _, rr := range msg.Ns {
+		nsec, ok := rr.(*dns.NSEC)
+		if !ok {
+			continue
+		}
+		if dnsCanonicalLess(nsec.Hdr.Name, qname) && dnsCanonicalLess(qname, nsec.NextDomain) {
+			foundCover = true
+			break
+		}
+	}
+	if !foundCover {
+		t.Error("NXDOMAIN response must include an NSEC that covers the SNAME (ixcuh.pq2ws.dnssrc.fibrecat.org.) in canonical order; see RFC 4035 §3.1.3.2")
+	}
+}
+
+// TestSigner_SignResponse_NXDOMAIN_zzzzz exercises the path where qname sorts after the last
+// name in the zone (single NSEC(last, apex)); also packs the message to catch any wire-format panic.
+func TestSigner_SignResponse_NXDOMAIN_zzzzz(t *testing.T) {
+	ksk, _ := GenerateKeyPair("dnssrc.fibrecat.org.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("dnssrc.fibrecat.org.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("dnssrc.fibrecat.org", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "dnssrc.fibrecat.org", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("zzzzz.dnssrc.fibrecat.org.", dns.TypeTXT)
+	req.SetEdns0(4096, true) // DO bit so signer adds NSEC/RRSIG
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg == nil {
+		t.Fatal("Handle returned nil")
+	}
+	if msg.Rcode != dns.RcodeNameError {
+		t.Fatalf("rcode=%d want NXDOMAIN", msg.Rcode)
+	}
+	// Pack to wire format (can panic if any RR is invalid)
+	_, err := msg.Pack()
+	if err != nil {
+		t.Fatalf("Pack: %v", err)
+	}
+}
+
+// TestSigner_SignResponse_delay10_A_NODATA verifies that delay-10 A (NODATA) with DNSSEC
+// returns NOERROR and a name-exists NSEC (owner=delay-10..., TypeBitMap includes TXT only),
+// not NXDOMAIN-style NSEC which would cause validators to return SERVFAIL (EDE 6 DNSSEC Bogus).
+func TestSigner_SignResponse_delay10_A_NODATA(t *testing.T) {
+	dir := t.TempDir()
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	_ = WriteKeyPair(ksk, filepath.Join(dir, "ksk"))
+	_ = WriteKeyPair(zsk, filepath.Join(dir, "zsk"))
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{
+		Domain: "example.com",
+		Signer: signer,
+	})
+	req := new(dns.Msg)
+	req.SetQuestion("delay-10.example.com.", dns.TypeA)
+	req.SetEdns0(4096, true) // DO bit so signer adds NSEC
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("delay-10 A: rcode=%d want NOERROR", msg.Rcode)
+	}
+	if len(msg.Answer) != 0 {
+		t.Fatalf("delay-10 A: NODATA should have no Answer, got %d", len(msg.Answer))
+	}
+	var nsecOwner string
+	for _, rr := range msg.Ns {
+		if nsec, ok := rr.(*dns.NSEC); ok {
+			nsecOwner = nsec.Hdr.Name
+			// NODATA NSEC must be for the qname (name exists), not a gap
+			if nsec.Hdr.Name != "delay-10.example.com." {
+				t.Errorf("NODATA NSEC owner=%q want delay-10.example.com. (name-exists NSEC)", nsec.Hdr.Name)
+			}
+			// TypeBitMap for delay-* is TXT only; qtype A excluded so bitmap should contain TXT
+			hasTXT := false
+			for _, t := range nsec.TypeBitMap {
+				if t == dns.TypeTXT {
+					hasTXT = true
+					break
+				}
+			}
+			if !hasTXT {
+				t.Errorf("NODATA NSEC TypeBitMap should include TXT for delay-10, got %v", nsec.TypeBitMap)
+			}
+			break
+		}
+	}
+	if nsecOwner == "" {
+		t.Error("missing NSEC in NODATA response")
+	}
+}
+
 func TestSigner_WithRRSIGValidity(t *testing.T) {
 	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
 	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
@@ -124,7 +279,7 @@ func TestSigner_WithRRSIGValidity(t *testing.T) {
 		Mbox:   "hostmaster.example.com.",
 		Serial: 1, Refresh: 86400, Retry: 7200, Expire: 3600000, Minttl: 60,
 	})
-	err := signer.SignResponse(msg, "example.com.", dns.TypeSOA)
+	err := signer.SignResponse(msg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,5 +310,263 @@ func TestSigner_CDSRecord(t *testing.T) {
 	}
 	if cds.KeyTag != ksk.DNSKEY.KeyTag() {
 		t.Errorf("CDS KeyTag=%d want %d", cds.KeyTag, ksk.DNSKEY.KeyTag())
+	}
+}
+
+// TestSigner_CDSRecord_uses_zone_name verifies that the CDS digest is computed using
+// the signer's zone name, not the key file's owner. If the key was generated for
+// a different zone, NewSigner overwrites DNSKEY.Hdr.Name so CDS/DS validates.
+func TestSigner_CDSRecord_uses_zone_name(t *testing.T) {
+	// Key generated for "other.com" but we use signer for "example.com"
+	ksk, _ := GenerateKeyPair("other.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("other.com.", dns.ECDSAP256SHA256, false)
+	digestForOtherCom := ksk.DNSKEY.ToDS(dns.SHA256)
+	if digestForOtherCom == nil {
+		t.Fatal("ToDS returned nil")
+	}
+	signer := NewSigner("example.com", ksk, zsk)
+	cds := signer.CDSRecord()
+	if cds == nil {
+		t.Fatal("CDS record nil")
+	}
+	// Digest must be for "example.com." (signer's zone), not "other.com."
+	if cds.Digest == digestForOtherCom.Digest {
+		t.Error("CDS digest must differ when signer zone differs from key owner; got same digest")
+	}
+	// CDS digest must match ToDS with signer's zone name
+	if cds.Digest != ksk.DNSKEY.ToDS(dns.SHA256).Digest {
+		t.Error("CDS digest should match signer zone (NewSigner sets DNSKEY.Hdr.Name)")
+	}
+}
+
+// TestSigner_SignResponse_noDO_noRRSIG verifies that when the request has no EDNS DO bit,
+// the signer does not add RRSIG or NSEC (only adds DNSKEY to Answer when qtype is DNSKEY).
+func TestSigner_SignResponse_noDO_noRRSIG(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("myip.example.com.", dns.TypeTXT)
+	// No SetEdns0 or SetEdns0(4096, false) — DO bit not set
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	for _, rr := range msg.Answer {
+		if rr.Header().Rrtype == dns.TypeRRSIG {
+			t.Error("expected no RRSIG in answer when DO bit not set")
+			break
+		}
+	}
+	for _, rr := range msg.Ns {
+		if rr.Header().Rrtype == dns.TypeNSEC || rr.Header().Rrtype == dns.TypeRRSIG {
+			t.Error("expected no NSEC/RRSIG in Ns when DO bit not set")
+			break
+		}
+	}
+}
+
+// DNSSEC fail-case tests: each label deliberately breaks validation so validators get SERVFAIL.
+
+func TestSigner_SignResponse_rrsig_expired(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("rrsig-expired.dnssec-failed.example.com.", dns.TypeA)
+	req.SetEdns0(4096, true) // DO bit so signer adds RRSIG
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	now := uint32(time.Now().UTC().Unix())
+	for _, rr := range msg.Answer {
+		if rrsig, ok := rr.(*dns.RRSIG); ok {
+			if rrsig.Expiration >= now || rrsig.Inception >= now {
+				t.Errorf("rrsig-expired: RRSIG should be in the past; Inception=%d Expiration=%d now=%d", rrsig.Inception, rrsig.Expiration, now)
+			}
+			return
+		}
+	}
+	t.Error("no RRSIG in answer for rrsig-expired")
+}
+
+func TestSigner_SignResponse_rrsig_future(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("rrsig-future.dnssec-failed.example.com.", dns.TypeA)
+	req.SetEdns0(4096, true) // DO bit so signer adds RRSIG
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	now := uint32(time.Now().UTC().Unix())
+	for _, rr := range msg.Answer {
+		if rrsig, ok := rr.(*dns.RRSIG); ok {
+			if rrsig.Inception <= now || rrsig.Expiration <= now {
+				t.Errorf("rrsig-future: RRSIG should be in the future; Inception=%d Expiration=%d now=%d", rrsig.Inception, rrsig.Expiration, now)
+			}
+			return
+		}
+	}
+	t.Error("no RRSIG in answer for rrsig-future")
+}
+
+func TestSigner_SignResponse_nsec_missing(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("nsec-missing.dnssec-failed.example.com.", dns.TypeA)
+	req.SetEdns0(4096, true) // DO bit so signer runs (but skips NSEC for this fail-case)
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	for _, rr := range msg.Ns {
+		if rr.Header().Rrtype == dns.TypeNSEC {
+			t.Error("nsec-missing: should have no NSEC in Ns")
+			break
+		}
+	}
+}
+
+func TestSigner_SignResponse_nsec_wrong_next(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("nsec-wrong-next.dnssec-failed.example.com.", dns.TypeA)
+	req.SetEdns0(4096, true) // DO bit so signer adds NSEC
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	zoneApex := "example.com."
+	for _, rr := range msg.Ns {
+		if nsec, ok := rr.(*dns.NSEC); ok && nsec.Hdr.Name == "nsec-wrong-next.dnssec-failed.example.com." {
+			if nsec.NextDomain == zoneApex {
+				t.Errorf("nsec-wrong-next: NSEC NextDomain should not be zone apex %q", zoneApex)
+			}
+			return
+		}
+	}
+	t.Error("no NSEC for nsec-wrong-next.dnssec-failed.example.com. in Ns")
+}
+
+func TestSigner_SignResponse_rrsig_wrong_alg(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("rrsig-wrong-alg.dnssec-failed.example.com.", dns.TypeA)
+	req.SetEdns0(4096, true) // DO bit so signer adds RRSIG
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	for _, rr := range msg.Answer {
+		if rrsig, ok := rr.(*dns.RRSIG); ok {
+			if rrsig.Algorithm == dns.ECDSAP256SHA256 {
+				t.Errorf("rrsig-wrong-alg: RRSIG Algorithm should differ from zone key (13); got %d", rrsig.Algorithm)
+			}
+			return
+		}
+	}
+	t.Error("no RRSIG in answer for rrsig-wrong-alg")
+}
+
+func TestSigner_SignResponse_rrsig_missing(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("rrsig-missing.dnssec-failed.example.com.", dns.TypeA)
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	owner := "rrsig-missing.dnssec-failed.example.com."
+	for _, rr := range msg.Answer {
+		if rr.Header().Rrtype == dns.TypeA && rr.Header().Name == owner {
+			for _, r := range msg.Answer {
+				if sig, ok := r.(*dns.RRSIG); ok && sig.TypeCovered == dns.TypeA && sig.Hdr.Name == owner {
+					t.Error("rrsig-missing: should have no RRSIG covering the A RRset for this owner")
+					return
+				}
+			}
+			return // A present, no RRSIG for it
+		}
+	}
+	t.Error("no A record for rrsig-missing in answer")
+}
+
+func TestSigner_SignResponse_nsec3_instead(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("nsec3-instead.dnssec-failed.example.com.", dns.TypeA)
+	req.SetEdns0(4096, true) // DO bit so signer adds NSEC3
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	var hasNSEC3 bool
+	for _, rr := range msg.Ns {
+		if rr.Header().Rrtype == dns.TypeNSEC3 {
+			hasNSEC3 = true
+			break
+		}
+	}
+	if !hasNSEC3 {
+		t.Error("nsec3-instead: Ns should contain NSEC3 RR(s)")
+	}
+}
+
+// TestSigner_ExistingNames_ContainsKnownLabels ensures the signer's NSEC name list includes
+// key names served by the handler (apex, www, diag, help, gadget labels). Catches drift when
+// adding new handler hosts/gadgets without updating the signer's existingNames.
+func TestSigner_ExistingNames_ContainsKnownLabels(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	names := signer.ExistingNames()
+	nameSet := make(map[string]struct{})
+	for _, n := range names {
+		nameSet[n] = struct{}{}
+	}
+	// Apex, special hosts, and representative gadgets (keep in sync with handler + signer list).
+	want := []string{
+		"example.com.",
+		"www.example.com.",
+		"diag.example.com.",
+		"help.example.com.",
+		"myip.example.com.",
+		"counter.example.com.",
+		"sig-fail.dnssec-failed.example.com.",
+	}
+	for _, w := range want {
+		if _, ok := nameSet[w]; !ok {
+			t.Errorf("ExistingNames missing %q (add to signer list when adding handler host/gadget)", w)
+		}
 	}
 }

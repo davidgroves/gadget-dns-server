@@ -16,11 +16,8 @@ import (
 
 const doqALPN = "doq"
 
-// serveDoQ starts a DNS over QUIC server. It blocks until the listener fails.
-func serveDoQ(ctx context.Context, h *handler.Handler, port int, tlsCert, tlsKey string) error {
-	if port <= 0 {
-		port = 853
-	}
+// serveDoQ starts a DNS over QUIC server on addr. It blocks until the listener fails.
+func serveDoQ(ctx context.Context, h *handler.Handler, addr, tlsCert, tlsKey string) error {
 	cert, err := tls.LoadX509KeyPair(tlsCert, tlsKey)
 	if err != nil {
 		return err
@@ -29,13 +26,12 @@ func serveDoQ(ctx context.Context, h *handler.Handler, port int, tlsCert, tlsKey
 		Certificates: []tls.Certificate{cert},
 		NextProtos:   []string{doqALPN},
 	}
-	addr := ResolveAddr("", port)
 	listener, err := quic.ListenAddr(addr, tlsConfig, &quic.Config{})
 	if err != nil {
 		return err
 	}
 	defer listener.Close()
-	logging.Info("DoQ listening", "port", port)
+	logging.Info("DoQ listening", "addr", addr)
 	for {
 		conn, err := listener.Accept(ctx)
 		if err != nil {

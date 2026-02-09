@@ -42,3 +42,6 @@ go.work.sum
 .DS_Store
 
 /gadget-dns-server
+/quick-deploy.sh
+
+dist/

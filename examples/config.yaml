@@ -1,48 +1,78 @@
-# Example config: all transports, Let's Encrypt TLS, ALG13 DNSSEC zone.
+# Example config: canonical delegation — one zone, apex and www point to this server.
 #
-# Prerequisites:
-#    mkdir -p certs keys
-# 1. Generate ALG13 (ECDSAP256SHA256) zone keys:
-#    ./gadget-dns-server --generate-zone-keys --domain dnssrc.example.com \
+# --- Parent zone setup ---
+# Delegate the zone to this server. In the parent zone (e.g. .com for example.com), add:
+#
+#   ; Delegate the zone to the server (in-bailiwick: NS at apex)
+#   dnssrc.example.com.     NS      dnssrc.example.com.
+#
+#   ; Apex A/AAAA so the NS target resolves (replace with your server's IPs)
+#   dnssrc.example.com.          A       192.0.2.1
+#   dnssrc.example.com.          AAAA    2001:db8::1
+#   ; Records for www and diag (replace with your server's IPs)
+#   www.dnssrc.example.com.      CNAME   dnssrc.example.com.
+#   diag.dnssrc.example.com.     CNAME   dnssrc.example.com.
+#
+#   ; Optionally, obtain the CDS record from the zone.
+#   ; and put is as a DS record in the parent zone.
+#   dnssrc.example.com.     DS      <DS record>
+#
+# This server then serves the zone: apex (SOA, NS, A, AAAA), www (A, AAAA), diag and
+# <token>.diag (A, AAAA, TXT), plus gadget endpoints. Webserver is at https://www.example.com
+# and diag dashboard at https://diag.example.com/<token>.
+#
+# --- Prerequisites (on this server) ---
+#   mkdir -p certs keys
+# 1. Generate zone keys:
+#    ./gadget-dns-server --generate-zone-keys --domain example.com \
 #      --dnssec-ksk ./keys/ksk --dnssec-zsk ./keys/zsk
-# 2. Obtain TLS cert (run once; ensure port 80 is reachable and domain points here):
+# 2. Obtain TLS cert (run once; port 80 must be reachable, www and diag must resolve here):
 #    ./gadget-dns-server --obtain-cert --config examples/config.yaml
 # 3. Run the server:
 #    ./gadget-dns-server --config examples/config.yaml
-#
-# Replace dnssrc.example.com with your delegated zone and DoH/DoT hostname.
 
 domain: dnssrc.example.com
 
-# All transports
-udp_addrs:
-  - ":53"
-tcp_addrs:
-  - ":53"
-dot_port: 853
-doh_port: 443
-doq_port: 8853
+# Ports and bind addresses (same bindings for all services).
+# Omit binds to listen on all interfaces.
+ports:
+  udp: 53
+  tcp: 53
+  dot: 853
+  doh: 443
+  doq: 8853
+binds:
+  - 0.0.0.0
+  - "::"
 
 # TLS cert and key (obtained via ACME; stored here)
 tls_cert: ./certs/fullchain.pem
 tls_key: ./certs/privkey.pem
 
-# Zone apex: NS and A/AAAA (for delegation)
-# Set server_ips via env if needed: GADGET_SERVER_IPS=192.0.2.1,2001:db8::1
+# Zone apex: NS name(s) and A/AAAA for apex, www, and diag.
+# server_ips is optional: if unset, IPs are derived from binds (when specific IPs like 192.0.2.1)
+# or from interface addresses (when binds are 0.0.0.0/::). Set explicitly or via GADGET_SERVER_IPS to override.
+server_ips:
+  - 192.0.2.1
+  - 2001:db8::1
 ns_records:
-  - ns1.dnssrc.example.com
-  - ns2.dnssrc.example.com
-
-# Let's Encrypt: domains for the certificate (DoH/DoT hostname)
-acme_domains:
   - dnssrc.example.com
-  - ns1.dnssrc.example.com
+
+# Diag: how long to keep diagnostic data (token.diag query events). Data older than this is pruned. Default 15m.
+diag_retention: 15m
+
+# Let's Encrypt: www (webserver) and diag (dashboard at https://diag.<zone>/<token>)
+acme_domains:
+  - ns0.dnssrc.example.com
+  - dnssrc.example.com
+  - diag.dnssrc.example.com
 acme_account_key: ./certs/acme-account.key
 acme_renew_days: 14
 # Optional: use staging for testing
 # acme_url: https://acme-staging-v02.api.letsencrypt.org/directory
 
-# HTTP server: port 80 for ACME challenges; optional TLS on 443 for health/metrics/feed
+# HTTP server: port 80 for ACME challenges; TLS on 443 for health/metrics/feed and DoH (/dns-query)
+# When doh (below) equals http_tls_port, DoH is served on this same TLS listener (no separate bind).
 http_port: 80
 http_tls_port: 443
 

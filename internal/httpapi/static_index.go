@@ -1,82 +1,468 @@
 package httpapi
 
-// indexHTML is the static instructions page served at /.
+// indexZonePlaceholder is replaced with the configured domain when serving the index.
+const indexZonePlaceholder = "__ZONE__"
+
+// indexHTML is the static instructions page served at /. End-user only: how to query each gadget.
+// __ZONE__ is replaced with the zone (domain from config) when serving.
 const indexHTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>gadget-dns-server</title>
+	<title>Gadget DNS — usage</title>
+	<script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js"></script>
 	<style>
-		body { font-family: system-ui, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.5rem 2rem; line-height: 1.6; }
-		h1 { font-size: 1.5rem; margin-top: 0; }
-		h2 { font-size: 1.1rem; margin-top: 1.5rem; }
-		code { background: #f0f0f0; padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.9em; }
-		pre { background: #f5f5f5; padding: 1rem; overflow-x: auto; border-radius: 4px; }
-		ul { margin: 0.5rem 0; padding-left: 1.5rem; }
-		a { color: #0066cc; }
+		:root { --bg: #0f0f14; --surface: #18181f; --border: #2d2d3a; --text: #e4e4e7; --text-muted: #a1a1aa; --accent: #818cf8; --accent-hover: #6366f1; }
+		html { font-size: 1.0625rem; }
+		body { font-family: system-ui, -apple-system, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.5rem 2rem; line-height: 1.6; background: var(--bg); color: var(--text); min-height: 100vh; }
+		h1 { font-size: 1.5rem; margin-top: 0; font-weight: 600; }
+		h2 { font-size: 1.1rem; margin-top: 1.5rem; font-weight: 600; color: var(--text); }
+		a { color: var(--accent); text-decoration: none; }
+		a:hover { text-decoration: underline; }
+		code { background: var(--surface); color: var(--accent); padding: 0.2em 0.45em; border-radius: 4px; font-size: 0.9em; border: 1px solid var(--border); }
+		pre { background: var(--surface); padding: 1rem; overflow-x: auto; border-radius: 6px; font-size: 0.88em; border: 1px solid var(--border); color: var(--text-muted); }
+		.endpoint { margin-bottom: 1.25rem; padding: 1rem; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); }
+		.endpoint p { margin: 0.25rem 0 0.5rem 0; color: var(--text-muted); }
+		.note { background: var(--surface); padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1.5rem; font-size: 0.95em; border-left: 3px solid var(--accent); color: var(--text-muted); }
+		.pre-wrap { position: relative; margin-bottom: 0.5rem; }
+		.pre-wrap:last-child { margin-bottom: 0; }
+		.pre-wrap .copy-btn { position: absolute; top: 0.5rem; right: 0.5rem; background: var(--accent); color: #fff; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+		.pre-wrap .copy-btn:hover { background: var(--accent-hover); }
 	</style>
 </head>
 <body>
-	<h1>gadget-dns-server</h1>
-	<p>A DNS server that provides gadget endpoints (myip, myport, counter, random, edns, timestamp, etc.) over UDP, TCP, DoT, DoH, and DoQ, with optional DNSSEC and ACME certificates.</p>
+	<h1>Gadget DNS</h1>
+	<p>This server answers DNS queries for gadget names under zone <code>__ZONE__</code>. Each name returns a specific value (your IP, a counter, time, etc.). Copy and paste the <code>dig</code> commands below.</p>
+	<div class="note"><strong>Tip:</strong> Use <code>dig @__ZONE__ …</code> to query this server directly, or use your normal resolver so it forwards to this server.</div>
+	<div class="note">Want to run your own instance? Use this project: <a href="https://github.com/davidgroves/gadget-dns-server" target="_blank" rel="noopener">github.com/davidgroves/gadget-dns-server</a>.</div>
 
-	<h2>Quick start</h2>
-	<pre># Build
-go build -o gadget-dns-server ./cmd/gadget-dns-server
+	<div class="endpoint">
+		<h2>help</h2>
+		<p>TXT record with a link to this docs page (<code>https://www.__ZONE__</code>).</p>
+		<pre>dig +short help.__ZONE__ TXT</pre>
+	</div>
 
-# Run (replace example.com with your zone)
-./gadget-dns-server --domain example.com --udp 127.0.0.1:5353 --tcp 127.0.0.1:5353 --http-port 8080
+	<div class="endpoint">
+		<h2>myip / ip</h2>
+		<p>Your client's IP address. <strong>Recommend using TXT</strong> so you always get the real address. A/AAAA return both record types for DNSSEC; if the packet came via IPv6, A is <code>0.0.0.0</code> (placeholder), and if via IPv4, AAAA is <code>::</code> (placeholder). Aliases: <code>ip.__ZONE__</code>.</p>
+		<pre>dig +short myip.__ZONE__ TXT</pre>
+		<pre>dig +short ip.__ZONE__ TXT</pre>
+		<pre>dig +short myip.__ZONE__ A</pre>
+		<pre>dig +short myip.__ZONE__ AAAA</pre>
+	</div>
 
-# Query
-dig +short -p 5353 @127.0.0.1 myip.example.com A
-dig +short -p 5353 @127.0.0.1 counter.example.com TXT</pre>
+	<div class="endpoint">
+		<h2>myport / port</h2>
+		<p>Your client's source port (TXT). Alias: <code>port.__ZONE__</code>.</p>
+		<pre>dig +short myport.__ZONE__ TXT</pre>
+		<pre>dig +short port.__ZONE__ TXT</pre>
+	</div>
 
-	<h2>Gadget endpoints</h2>
-	<p>Under your zone, the server answers these names (first label):</p>
-	<ul>
-		<li><code>myip</code> — A/AAAA: client source IP</li>
-		<li><code>myport</code> — TXT: client source port</li>
-		<li><code>myaddr</code> — TXT: client address and port</li>
-		<li><code>counter</code> — TXT: per-server incrementing counter</li>
-		<li><code>random</code> — A/AAAA/TXT: random value</li>
-		<li><code>edns</code> — TXT: EDNS options on the request</li>
-		<li><code>edns-cs</code>, <code>ecs</code> — TXT: EDNS Client Subnet (raw)</li>
-		<li><code>protocol</code> — TXT: transport (UDP, TCP, DoH, DoT, DoQ)</li>
-		<li><code>timestamp</code> — TXT: current time (ms), TTL 60</li>
-		<li><code>timestamp0</code> — TXT: current time (ms), TTL 0</li>
-		<li><code>ttl-N</code> — TXT: current time (s), TTL N seconds (e.g. <code>ttl-60</code>, <code>ttl-0</code>, N up to 86400)</li>
-		<li><code>size-N</code> — TXT: response wire size ~N bytes (128–4096, uses EDNS padding)</li>
-		<li><code>*.qname-min</code> — TXT: exact QNAME received (for QNAME minimization testing)</li>
-		<li><code>sig-fail</code> — A/TXT: intentionally invalid RRSIG; if you resolve it, your resolver is not validating DNSSEC</li>
-		<li><code>&lt;token&gt;.diag</code> — query over DNS to record; then open <code>https://&lt;token&gt;.diag.&lt;zone&gt;</code> to view queries</li>
-	</ul>
+	<div class="endpoint">
+		<h2>myaddr / addr</h2>
+		<p>Your client's address and port (TXT, two strings). Alias: <code>addr.__ZONE__</code>.</p>
+		<pre>dig +short myaddr.__ZONE__ TXT</pre>
+		<pre>dig +short addr.__ZONE__ TXT</pre>
+	</div>
 
-	<h2>Transports</h2>
-	<p>Enable with <code>--udp</code>, <code>--tcp</code>, <code>--dot-port 853</code>, <code>--doh-port 443</code>, <code>--doq-port 8853</code>. DoT/DoH/DoQ require <code>--tls-cert</code> and <code>--tls-key</code>.</p>
+	<div class="endpoint">
+		<h2>connection / myconnection</h2>
+		<p>URL-like representation of how the client connected (TXT): <code>doh://&lt;ip4&gt;:&lt;port&gt;</code>, <code>dot://[&lt;ipv6&gt;]:&lt;port&gt;</code>, <code>doq://</code>, <code>udp://</code>, or <code>tcp://</code>.</p>
+		<pre>dig +short connection.__ZONE__ TXT</pre>
+		<pre>dig +short myconnection.__ZONE__ TXT</pre>
+	</div>
 
-	<h2>ACME (Let's Encrypt)</h2>
-	<pre># Obtain cert once (HTTP server on port 80 must be reachable)
-./gadget-dns-server --obtain-cert --acme-domain dns.example.com --tls-cert cert.pem --tls-key key.pem --http-port 80
+	<div class="endpoint">
+		<h2>counter</h2>
+		<p>Per-server incrementing counter (TXT).</p>
+		<pre>dig +short counter.__ZONE__ TXT</pre>
+	</div>
 
-# Then run server with the cert; renewal runs automatically when configured.</pre>
+	<div class="endpoint">
+		<h2>random</h2>
+		<p>Random value (A, AAAA, or TXT).</p>
+		<pre>dig +short random.__ZONE__ A</pre>
+		<pre>dig +short random.__ZONE__ AAAA</pre>
+		<pre>dig +short random.__ZONE__ TXT</pre>
+	</div>
 
-	<h2>DNSSEC</h2>
-	<pre># Generate ALG13 zone keys
-./gadget-dns-server --generate-zone-keys --domain example.com --dnssec-ksk ./keys/ksk --dnssec-zsk ./keys/zsk
+	<div class="endpoint">
+		<h2>protocol</h2>
+		<p>Transport used: UDP, TCP, DoT, DoH, or DoQ (TXT).</p>
+		<pre>dig +short protocol.__ZONE__ TXT</pre>
+	</div>
 
-# Run with DNSSEC
-./gadget-dns-server --domain example.com --udp :53 --dnssec --dnssec-ksk ./keys/ksk --dnssec-zsk ./keys/zsk --tls-cert cert.pem --tls-key key.pem</pre>
+	<div class="endpoint">
+		<h2>timestamp-N</h2>
+		<p>Current time in milliseconds (TXT), with TTL = N seconds (0–86400). Example: <code>timestamp-60</code>, <code>timestamp-0</code>.</p>
+		<pre>dig +short timestamp-60.__ZONE__ TXT</pre>
+		<pre>dig +short timestamp-0.__ZONE__ TXT</pre>
+	</div>
 
-	<h2>Configuration</h2>
-	<p>Precedence: <strong>CLI &gt; environment &gt; YAML</strong>. Use <code>--config path</code> or <code>GADGET_CONFIG</code> for a YAML file. Key options: <code>--domain</code>, <code>--udp</code>, <code>--tcp</code>, <code>--dot-port</code>, <code>--doh-port</code>, <code>--doq-port</code>, <code>--tls-cert</code>, <code>--tls-key</code>, <code>--http-port</code>, <code>--acme-domain</code>, <code>--dnssec</code>, <code>--dnssec-ksk</code>, <code>--dnssec-zsk</code>, <code>--dnssec-rrsig-inception</code>, <code>--dnssec-rrsig-validity</code>.</p>
+	<div class="endpoint">
+		<h2>ttl-N</h2>
+		<p>Current Unix time in seconds, with TTL = N (0–86400). Example: <code>ttl-60</code>, <code>ttl-0</code>.</p>
+		<pre>dig +short ttl-60.__ZONE__ TXT</pre>
+		<pre>dig +short ttl-0.__ZONE__ TXT</pre>
+	</div>
 
-	<h2>HTTP endpoints (this server)</h2>
-	<ul>
-		<li><a href="/healthcheck">/healthcheck</a> — liveness</li>
-		<li><a href="/metrics">/metrics</a> — Prometheus metrics</li>
-		<li><a href="/feed">/feed</a> — NDJSON stream of queries/responses</li>
-	</ul>
+	<div class="endpoint">
+		<h2>edns</h2>
+		<p>EDNS options present on the request (TXT).</p>
+		<pre>dig +short edns.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>edns-cs / ecs</h2>
+		<p>EDNS Client Subnet from the request (TXT).</p>
+		<pre>dig +short edns-cs.__ZONE__ TXT</pre>
+		<pre>dig +short ecs.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>cookie</h2>
+		<p>EDNS Cookie (RFC 7873) from the request, echoed as TXT. Use <code>+cookie</code> with dig to send a cookie.</p>
+		<pre>dig +short +cookie cookie.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>set-cookie-&lt;string&gt;</h2>
+		<p>Force the response to include an EDNS Cookie option with the given value (e.g. return a cookie when the client did not send one, or override the cookie). The string is hex-encoded; for a valid packet the cookie must be <strong>16 bytes</strong> (RFC 7873: 8-byte client + 8-byte server), so use a 16-character string (e.g. <code>set-cookie-1234567890123456</code>). <strong>Setting a short cookie (e.g. <code>set-cookie-abc</code>) intentionally emits a malformed packet</strong>—useful for testing.</p>
+		<pre>dig +short set-cookie-1234567890123456.__ZONE__ TXT</pre>
+		<pre>dig +short +cookie set-cookie-24a5ac1234567890.__ZONE__ TXT</pre>
+		<p><em>Note:</em> <code>set-cookie-abc</code> is valid as a label but produces a malformed EDNS cookie (3 bytes); use only when testing malformed responses.</p>
+	</div>
+
+	<div class="endpoint">
+		<h2>set-ede-&lt;number&gt;-&lt;string&gt;</h2>
+		<p>Force the response to include an Extended DNS Error (RFC 8914) option with the given code and optional text, even when the response is otherwise successful.</p>
+		<pre>dig +short set-ede-5.__ZONE__ TXT</pre>
+		<pre>dig +short set-ede-5-test.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>set-flags-&lt;bitmask&gt;</h2>
+		<p>Set the DNS response header flags to the given 16-bit value. Accepts binary (e.g. <code>100010100</code>), decimal (e.g. <code>23</code>), or hex with <code>0x</code> prefix (e.g. <code>0x3c</code>). The low 4 bits set the RCODE; higher bits set QR, Opcode, AA, TC, RD, RA, Z, AD, CD (see RFC 1035 / 4035).</p>
+		<p><strong>Examples:</strong></p>
+		<ul style="margin:0.25rem 0 0.5rem 0; padding-left:1.25rem; color:var(--text-muted);">
+			<li><code>set-flags-0x8180</code> — response (QR) + Recursion Available (RA)</li>
+			<li><code>set-flags-0x8580</code> — response + Authoritative (AA) + RA</li>
+			<li><code>set-flags-23</code> — Checking Disabled (CD) + RCODE 7 (REFUSED)</li>
+			<li><code>set-flags-0x0200</code> — Truncated (TC), e.g. for testing UDP fallback</li>
+		</ul>
+		<pre>dig +short set-flags-0x8180.__ZONE__ TXT</pre>
+		<pre>dig +short set-flags-0x8580.__ZONE__ TXT</pre>
+		<pre>dig +short set-flags-23.__ZONE__ TXT</pre>
+		<pre>dig +short set-flags-0x0200.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>set-rcode-&lt;value&gt; / set-status-&lt;value&gt;</h2>
+		<p>Set the DNS response RCODE (status code). Accepts decimal (0–15 or extended), hex with <code>0x</code> prefix, or RCODE name (e.g. <code>NOERROR</code>, <code>NXDOMAIN</code>, <code>SERVFAIL</code>, <code>REFUSED</code>). <code>set-status-</code> is an alias for <code>set-rcode-</code>.</p>
+		<pre>dig +short set-rcode-3.__ZONE__ TXT</pre>
+		<pre>dig +short set-status-NXDOMAIN.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>set-id-&lt;value&gt;</h2>
+		<p>Set the DNS response transaction ID (16-bit). Accepts decimal (0–65535) or hex with <code>0x</code> prefix.</p>
+		<pre>dig +short set-id-12345.__ZONE__ TXT</pre>
+		<pre>dig +short set-id-0xabcd.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>set-ttl-&lt;N&gt;</h2>
+		<p>Set the TTL of all response RRs (Answer and Authority) to N seconds (0–86400). Useful for testing TTL behavior. Can be stacked with other set-options (e.g. <code>set-cookie-616263.set-ttl-20.__ZONE__</code>).</p>
+		<pre>dig +short set-ttl-60.__ZONE__ TXT</pre>
+		<pre>dig +short set-cookie-616263.set-ttl-20.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>set-answer-&lt;value&gt; (A and TXT only)</h2>
+		<p>Override the response Answer section with the given values. <strong>Only A and TXT record types are supported.</strong> You can stack multiple values; each <code>set-answer-*</code> label adds one value.</p>
+		<p><strong>A records:</strong> <code>set-answer-&lt;a&gt;-&lt;b&gt;-&lt;c&gt;-&lt;d&gt;</code> — four hyphen-separated octets (0–255), e.g. <code>set-answer-1-2-3-4</code> returns A record <code>1.2.3.4</code>. Multiple labels return multiple A records.</p>
+		<p><strong>TXT records:</strong> <code>set-answer-plaintext-&lt;string&gt;</code> — the rest of the label is the TXT string (hyphens allowed). Multiple <code>set-answer-plaintext-*</code> labels produce one TXT RR with multiple strings.</p>
+		<pre>dig +short set-answer-1-2-3-4.set-answer-5-6-7-8.__ZONE__ A</pre>
+		<pre>dig +short set-answer-plaintext-hello.set-answer-plaintext-world.__ZONE__ TXT</pre>
+		<pre>dig +short set-answer-1-2-3-4.set-answer-5-6-7-8.foo.diag.__ZONE__ A</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>Stacking set-options</h2>
+		<p>You can combine multiple set-options in one query by listing them left to right. All apply: e.g. <code>set-cookie-*</code> (hex value), <code>set-ede-*</code>, <code>set-flags-*</code>, <code>set-rcode-*</code>, <code>set-status-*</code>, <code>set-id-*</code>, <code>set-ttl-N</code>, <code>set-answer-*</code>. Example: <code>set-cookie-616263.set-ttl-20.token.diag.__ZONE__</code> sets both the EDNS cookie (hex 616263) and the response TTL to 20, and records to diag under token <code>token</code>.</p>
+		<pre>dig +short set-cookie-616263.set-ttl-20.__ZONE__ TXT</pre>
+		<pre>dig +short set-rcode-3.set-id-0x1234.__ZONE__ TXT</pre>
+		<pre>dig +short set-cookie-78797a.set-ede-5-foo.mytoken.diag.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>size-N</h2>
+		<p>Response wire size approximately N bytes (128–4096). Uses EDNS padding (TXT).</p>
+		<pre>dig +short size-256.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>delay-N / delay-X-Y</h2>
+		<p>Delay the response by N milliseconds, or by a random number of milliseconds between X and Y (inclusive). Useful for timeout and latency testing. Example: <code>delay-500</code>, <code>delay-100-500</code>.</p>
+		<pre>dig +short delay-500.__ZONE__ TXT</pre>
+		<pre>dig +short delay-100-500.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>qname-min</h2>
+		<p>QNAME minimization testing (<a href="https://datatracker.ietf.org/doc/html/rfc7816" target="_blank" rel="noopener">RFC 7816</a>). Query any name under <code>*.qname-min.__ZONE__</code> (e.g. <code>a.b.c.d.zzzzzzz.qname-min.__ZONE__</code>). The TXT response includes the QNAME received and the sequence of qnames the server saw from that resolver (oldest first), with the number of requests—e.g. <code>qname-min.__ZONE__</code>, then <code>zzzzzzz.qname-min.__ZONE__</code>, then <code>d.zzzzzzz.qname-min.__ZONE__</code>. Because all names are in the same zone on this server, the full sequence is visible.</p>
+		<pre>dig +short zzzzzzz.qname-min.__ZONE__ TXT</pre>
+		<pre>dig +short a.b.c.d.zzzzzzz.qname-min.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>DNSSEC fail tests (dnssec-failed subdomain)</h2>
+		<p>These names deliberately break DNSSEC so you can check that your resolver validates (you should get SERVFAIL or no answer when validation is on). All fail-case names live under <code>dnssec-failed.__ZONE__</code>.</p>
+		<ul style="margin:0.25rem 0 0.5rem 0; padding-left:1.25rem; color:var(--text-muted);">
+			<li><code>sig-fail.dnssec-failed.__ZONE__</code> — invalid RRSIG (corrupted signature)</li>
+			<li><code>rrsig-expired.dnssec-failed.__ZONE__</code> — RRSIG validity in the past (expired)</li>
+			<li><code>rrsig-future.dnssec-failed.__ZONE__</code> — RRSIG validity in the future (not yet valid)</li>
+			<li><code>nsec-missing.dnssec-failed.__ZONE__</code> — NODATA without NSEC</li>
+			<li><code>nsec-wrong-next.dnssec-failed.__ZONE__</code> — NSEC with wrong NextDomain (chain broken)</li>
+			<li><code>rrsig-wrong-alg.dnssec-failed.__ZONE__</code> — RRSIG claims wrong algorithm</li>
+			<li><code>rrsig-wrong-rrset.dnssec-failed.__ZONE__</code> — RRSIG signed over wrong RRset</li>
+			<li><code>rrsig-missing.dnssec-failed.__ZONE__</code> — RRset with no RRSIG</li>
+			<li><code>nsec3-instead.dnssec-failed.__ZONE__</code> — NSEC3 in response (zone is NSEC-only)</li>
+		</ul>
+		<pre>dig +short sig-fail.dnssec-failed.__ZONE__ A</pre>
+		<pre>dig +short rrsig-expired.dnssec-failed.__ZONE__ A</pre>
+		<pre>dig +short nsec-missing.dnssec-failed.__ZONE__ A</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>entropy</h2>
+		<p>Port and transaction ID entropy check. The browser triggers DNS lookups; results show source port and ID randomness (GREAT/GOOD/POOR).</p>
+		<p>Open <a href="/entropy">/entropy</a> to run the check.</p>
+	</div>
+
+	<div class="endpoint">
+		<h2>DoT and DoH with dig</h2>
+		<p>You need a <strong>modern dig</strong> (BIND 9.17+ for <code>+https</code>, BIND 9.19+ for <code>+tls</code>). Query <strong>directly at this server</strong> (<code>@__ZONE__</code>), not via a recursive resolver.</p>
+		<p><strong>DoT (port 853):</strong></p>
+		<pre>dig +tls @__ZONE__ myip.__ZONE__ A</pre>
+		<pre>dig +short +tls @__ZONE__ counter.__ZONE__ TXT</pre>
+		<p><strong>DoH (port 443, path /dns-query):</strong></p>
+		<pre>dig +https @__ZONE__ myip.__ZONE__ A</pre>
+		<pre>dig +short +https @__ZONE__ counter.__ZONE__ TXT</pre>
+		<p><strong>DoQ (port 8853):</strong> <code>dig</code> doesn't support DNS over QUIC. Use the <a href="https://github.com/mr-karan/doggo" target="_blank" rel="noopener">doggo</a> client (install: <code>go install github.com/mr-karan/doggo/cmd/doggo@latest</code> or <code>brew install doggo</code>). Query directly at this server:</p>
+		<pre>doggo myip.__ZONE__ @quic://__ZONE__:8853</pre>
+		<pre>doggo TXT counter.__ZONE__ @quic://__ZONE__:8853 --short</pre>
+		<p class="note" style="margin-top:0.75rem;margin-bottom:0;"><strong>Recursive–to–authority security:</strong> Today, stub→recursive and recursive→authority are often unencrypted. The <a href="https://datatracker.ietf.org/doc/draft-ietf-deleg/" target="_blank" rel="noopener">DELEG (Extensible Delegation for DNS)</a> internet draft aims to allow delegation records to carry server capabilities (e.g. DoT/DoH), so recursive resolvers can securely reach authoritative servers in the future.</p>
+	</div>
+
+	<!-- Keep diag at the bottom: add new endpoints above this comment. -->
+	<div class="endpoint">
+		<h2>token.diag and gadget.token.diag</h2>
+		<p>Record a query for a token, then open the dashboard in a browser. Replace <code>mytoken</code> with any label.</p>
+		<pre>dig +short mytoken.diag.__ZONE__ TXT</pre>
+		<p>Then open <a href="https://diag.__ZONE__/">https://diag.__ZONE__/</a> to enter your token, or go directly to <code>https://diag.__ZONE__/&lt;token&gt;</code> to view recorded queries for that token.</p>
+		<p>You can also run a gadget under diag: <code>&lt;gadget&gt;.&lt;token&gt;.diag.__ZONE__</code> returns the gadget response (e.g. connection URL, myip) and still records the query to the diag dashboard for that token. Example: <code>connection.foo.diag.__ZONE__</code> returns the connection URL and records under token <code>foo</code>.</p>
+		<pre>dig +short connection.foo.diag.__ZONE__ TXT</pre>
+		<pre>dig +short myip.mytoken.diag.__ZONE__ TXT</pre>
+	</div>
+	<script>
+	document.querySelectorAll('.endpoint pre').forEach(function(pre) {
+		var wrap = document.createElement('div');
+		wrap.className = 'pre-wrap';
+		pre.parentNode.insertBefore(wrap, pre);
+		wrap.appendChild(pre);
+		var btn = document.createElement('button');
+		btn.type = 'button';
+		btn.className = 'copy-btn';
+		btn.textContent = 'Copy';
+		btn.onclick = function() {
+			navigator.clipboard.writeText(pre.textContent.trim()).then(function() {
+				btn.textContent = 'Copied!';
+				setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
+			});
+		};
+		wrap.appendChild(btn);
+	});
+	</script>
+</body>
+</html>
+`
+
+// diagTokenPromptHTML is the page at /mytoken/ on the diag host: message + token input. __ZONE__ replaced when serving.
+const diagTokenPromptHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Diag — enter token</title>
+	<script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js"></script>
+	<style>
+		:root { --bg: #0f0f14; --surface: #18181f; --border: #2d2d3a; --text: #e4e4e7; --text-muted: #a1a1aa; --accent: #818cf8; --accent-hover: #6366f1; }
+		html { font-size: 1.0625rem; }
+		body { font-family: system-ui, -apple-system, sans-serif; max-width: 32rem; margin: 0 auto; padding: 2rem; line-height: 1.6; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; justify-content: center; }
+		h1 { font-size: 1.35rem; margin-top: 0; font-weight: 600; }
+		p { color: var(--text-muted); margin: 0.5rem 0 1rem 0; }
+		.form-row { display: flex; gap: 0.5rem; margin-top: 1rem; }
+		input[type="text"] { flex: 1; background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 0.6rem 0.75rem; border-radius: 6px; font-size: 1rem; }
+		input[type="text"]::placeholder { color: var(--text-muted); }
+		input[type="text"]:focus { outline: none; border-color: var(--accent); }
+		button { background: var(--accent); color: #fff; border: none; padding: 0.6rem 1.25rem; border-radius: 6px; font-size: 1rem; font-weight: 500; cursor: pointer; }
+		button:hover { background: var(--accent-hover); }
+		code { background: var(--surface); color: var(--accent); padding: 0.2em 0.45em; border-radius: 4px; font-size: 0.9em; border: 1px solid var(--border); }
+	</style>
+</head>
+<body>
+	<div x-data="{ token: '' }">
+		<h1>Diag dashboard</h1>
+		<p>Visit <code>/&lt;token&gt;</code> to view the dashboard for that token. Enter your token below to go there.</p>
+		<div class="form-row">
+			<input type="text" x-model="token" placeholder="e.g. mytoken" @keydown.enter.prevent="if(token.trim()) location.href='/'+encodeURIComponent(token.trim())">
+			<button @click="if(token.trim()) location.href='/'+encodeURIComponent(token.trim())">Go</button>
+		</div>
+	</div>
+</body>
+</html>
+`
+
+// entropyHTML is the page at /entropy for port and ID entropy checks. __ZONE__ is replaced when serving.
+const entropyHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Entropy check (port &amp; ID)</title>
+	<style>
+		:root { --bg: #0f0f14; --surface: #18181f; --border: #2d2d3a; --text: #e4e4e7; --text-muted: #a1a1aa; --accent: #818cf8; --accent-hover: #6366f1; }
+		html { font-size: 1.0625rem; }
+		body { font-family: system-ui, -apple-system, sans-serif; max-width: 48rem; margin: 0 auto; padding: 1.5rem 2rem; line-height: 1.6; background: var(--bg); color: var(--text); min-height: 100vh; }
+		h1 { font-size: 1.35rem; margin-top: 0; font-weight: 600; }
+		p { color: var(--text-muted); margin: 0.5rem 0 1rem 0; }
+		.result { background: var(--surface); padding: 1rem; border-radius: 6px; border: 1px solid var(--border); margin-top: 1rem; }
+		.result dl { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1.5rem; margin: 0; }
+		.result dt { color: var(--text-muted); }
+		.result dd { margin: 0; font-weight: 500; }
+		.great { color: #22c55e; }
+		.good { color: #eab308; }
+		.poor { color: #ef4444; }
+		#status { margin-top: 1rem; }
+		.histogram { display: flex; align-items: flex-end; gap: 1px; height: 80px; margin: 0.5rem 0; max-width: 100%; min-width: 0; overflow: hidden; }
+		.histogram span { flex: 1; min-width: 0; border-radius: 1px; }
+		.histogram-port span { background: #22c55e; }
+		.histogram-id span { background: #eab308; }
+		.histogram span[data-count="0"] { opacity: 0.15; }
+		.opt { margin: 0.5rem 0; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+		.opt label { color: var(--text-muted); }
+		.opt input[type="number"] { width: 5rem; background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 0.25rem 0.5rem; border-radius: 4px; }
+		.opt button { background: var(--accent); color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 6px; font-size: 1rem; font-weight: 500; cursor: pointer; }
+		.opt button:hover { background: var(--accent-hover); }
+		.opt button:disabled { opacity: 0.6; cursor: not-allowed; }
+		a { color: var(--accent); text-decoration: none; }
+		a:hover { text-decoration: underline; }
+		.note { font-size: 0.9rem; color: var(--text-muted); margin-top: 0.5rem; }
+	</style>
+</head>
+<body>
+	<h1>Entropy check (port &amp; ID)</h1>
+	<p>This page measures the randomness of the DNS resolver’s source port and transaction ID. Sufficient randomness helps to prevent cache poisoning and reduces the ability of attackers to predict query parameters.</p>
+	<p>Select the number of samples (100–1000). When Run is selected, the browser initiates that many DNS lookups. The server records the source port and transaction ID for each query and displays ratings, histograms, and a <a href="https://en.wikipedia.org/wiki/Chi-squared_test" target="_blank" rel="noopener">chi-squared</a> uniformity score (0–100).</p>
+	<p>Port and ID ratings (GREAT / GOOD / POOR) are based on the <strong>standard deviation</strong> of the observed values. A higher spread indicates better randomness. For the Port χ² and ID χ² statistics, <strong>lower values indicate a more uniform distribution</strong>. The page also reports <a href="https://datatracker.ietf.org/doc/html/rfc5452#section-6.2" target="_blank" rel="noopener">0x20</a> QNAME case support when the resolver varies letter case in queries.</p>
+	<div class="opt">
+		<label for="samples">Samples:</label>
+		<input type="number" id="samples" min="100" max="1000" value="250" step="1">
+		<button type="button" id="runBtn">Run</button>
+	</div>
+	<div id="status"></div>
+	<div id="result" class="result" style="display:none;"></div>
+	<script>
+(function() {
+	var zone = '__ZONE__';
+	var samplesInput = document.getElementById('samples');
+	var runBtn = document.getElementById('runBtn');
+	var resultEl = document.getElementById('result');
+	var statusEl = document.getElementById('status');
+	var MIN = 100, MAX = 1000;
+	function clampSamples() {
+		var val = parseInt(samplesInput.value, 10);
+		if (isNaN(val) || val < MIN) { samplesInput.value = MIN; return MIN; }
+		if (val > MAX) { samplesInput.value = MAX; return MAX; }
+		return val;
+	}
+	samplesInput.addEventListener('change', clampSamples);
+	samplesInput.addEventListener('blur', clampSamples);
+	function runTest() {
+		var N = clampSamples();
+		runBtn.disabled = true;
+		statusEl.textContent = 'Running…';
+		resultEl.style.display = 'none';
+		var runId = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+		var scheme = location.protocol === 'https:' ? 'https:' : 'http:';
+		for (var i = 0; i < N; i++) {
+			var url = scheme + '//' + runId + '-' + i + '.entropy.' + zone + '/';
+			var img = new Image();
+			img.src = url;
+		}
+		var start = Date.now();
+		var timeoutMs = N > 500 ? 60000 : 45000;
+		function barChart(arr, maxVal, className) {
+			var m = maxVal || Math.max.apply(null, arr);
+			if (m === 0) m = 1;
+			var html = '<div class="histogram ' + (className || '') + '">';
+			for (var i = 0; i < arr.length; i++) {
+				var h = Math.round((arr[i] / m) * 80);
+				html += '<span style="height:' + h + 'px" data-count="' + arr[i] + '" title="bucket ' + i + ': ' + arr[i] + '"></span>';
+			}
+			html += '</div>';
+			return html;
+		}
+		function poll() {
+			if (Date.now() - start > timeoutMs) {
+				statusEl.textContent = 'The request timed out.';
+				runBtn.disabled = false;
+				return;
+			}
+			fetch(location.origin + '/entropy/result/' + encodeURIComponent(runId) + '?n=' + N)
+				.then(function(r) { return r.json(); })
+				.then(function(data) {
+					if (data.result && data.result.samples_count >= N) {
+						statusEl.textContent = 'Complete.';
+						runBtn.disabled = false;
+						var r = data.result;
+						var portCls = r.port_rating === 'GREAT' ? 'great' : (r.port_rating === 'GOOD' ? 'good' : 'poor');
+						var idCls = r.id_rating === 'GREAT' ? 'great' : (r.id_rating === 'GOOD' ? 'good' : 'poor');
+						var n = r.samples_count || 1;
+						var upperPct = n ? (100 * (r.qname_uppercase_count || 0) / n).toFixed(1) : '0';
+						var lowerPct = n ? (100 * (r.qname_lowercase_count || 0) / n).toFixed(1) : '0';
+						var html = '<dl><dt>Port rating</dt><dd class="' + portCls + '">' + r.port_rating + '</dd>' +
+							'<dt>Port stddev</dt><dd>' + r.port_stddev + '</dd>' +
+							'<dt>Port χ²</dt><dd>' + (r.port_chi2 != null ? r.port_chi2 : '—') + '</dd>' +
+							'<dt>ID rating</dt><dd class="' + idCls + '">' + r.id_rating + '</dd>' +
+							'<dt>ID stddev</dt><dd>' + r.id_stddev + '</dd>' +
+							'<dt>ID χ²</dt><dd>' + (r.id_chi2 != null ? r.id_chi2 : '—') + '</dd>' +
+							'<dt>Samples</dt><dd>' + r.samples_count + '</dd>' +
+							'<dt><a href="https://datatracker.ietf.org/doc/html/rfc5452#section-6.2" target="_blank" rel="noopener">0x20</a> Uppercase</dt><dd>' + (r.qname_uppercase_count || 0) + ' (' + upperPct + '%)</dd>' +
+							'<dt><a href="https://datatracker.ietf.org/doc/html/rfc5452#section-6.2" target="_blank" rel="noopener">0x20</a> Lowercase</dt><dd>' + (r.qname_lowercase_count || 0) + ' (' + lowerPct + '%)</dd>' +
+							'<dt>Randomness score</dt><dd>' + r.randomness_score + '/100 <small>(<a href="https://en.wikipedia.org/wiki/Chi-squared_test" target="_blank" rel="noopener">chi-squared</a> uniformity)</small></dd>';
+						html += '</dl>';
+						html += '<p style="margin-top:0.75rem;color:var(--text-muted)">Port histogram (256 buckets)</p>' + barChart(r.port_histogram || [], null, 'histogram-port');
+						html += '<p style="margin-top:0.5rem;color:var(--text-muted)">Transaction ID histogram (256 buckets)</p>' + barChart(r.id_histogram || [], null, 'histogram-id');
+						resultEl.innerHTML = html;
+						resultEl.style.display = 'block';
+						return;
+					}
+					statusEl.textContent = 'Running… (' + (data.samples_count || 0) + '/' + N + ' samples)';
+					setTimeout(poll, 1000);
+				})
+				.catch(function() {
+					statusEl.textContent = 'An error occurred while fetching the result.';
+					runBtn.disabled = false;
+				});
+		}
+		setTimeout(poll, 1500);
+	}
+	runBtn.addEventListener('click', runTest);
+})();
+	</script>
 </body>
 </html>
 `

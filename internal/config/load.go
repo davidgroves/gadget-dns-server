@@ -32,20 +32,23 @@ func merge(a, b *Config) {
 	if b.Domain != "" {
 		a.Domain = b.Domain
 	}
-	if len(b.UDPAddrs) > 0 {
-		a.UDPAddrs = append([]string(nil), b.UDPAddrs...)
+	if b.Ports.UDP != 0 {
+		a.Ports.UDP = b.Ports.UDP
 	}
-	if len(b.TCPAddrs) > 0 {
-		a.TCPAddrs = append([]string(nil), b.TCPAddrs...)
+	if b.Ports.TCP != 0 {
+		a.Ports.TCP = b.Ports.TCP
 	}
-	if b.DOTPort != 0 {
-		a.DOTPort = b.DOTPort
+	if b.Ports.DoT != 0 {
+		a.Ports.DoT = b.Ports.DoT
 	}
-	if b.DOHPort != 0 {
-		a.DOHPort = b.DOHPort
+	if b.Ports.DoH != 0 {
+		a.Ports.DoH = b.Ports.DoH
 	}
-	if b.DOQPort != 0 {
-		a.DOQPort = b.DOQPort
+	if b.Ports.DoQ != 0 {
+		a.Ports.DoQ = b.Ports.DoQ
+	}
+	if len(b.Binds) > 0 {
+		a.Binds = append([]string(nil), b.Binds...)
 	}
 	if b.TLSCert != "" {
 		a.TLSCert = b.TLSCert
@@ -124,5 +127,8 @@ func merge(a, b *Config) {
 	}
 	if b.DNSSECRRSIGValidity != "" {
 		a.DNSSECRRSIGValidity = b.DNSSECRRSIGValidity
+	}
+	if b.DiagRetention != "" {
+		a.DiagRetention = b.DiagRetention
 	}
 }

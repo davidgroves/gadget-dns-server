@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"crypto/tls"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -36,12 +37,17 @@ func (s *Server) ACMEResponder() *ACMEResponder {
 }
 
 // Start starts the plain HTTP listener (and optionally TLS).
+// Bind is done synchronously so callers get an error if the port is in use.
 func (s *Server) Start() error {
 	// Plain HTTP (for ACME HTTP-01)
 	addr := ":" + strconv.Itoa(s.Port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
 	go func() {
 		logging.Info("HTTP server listening", "port", s.Port)
-		if err := http.ListenAndServe(addr, s.Routes); err != nil && err != http.ErrServerClosed {
+		if err := http.Serve(listener, s.Routes); err != nil && err != http.ErrServerClosed {
 			logging.Error("HTTP server failed", "err", err)
 		}
 	}()
