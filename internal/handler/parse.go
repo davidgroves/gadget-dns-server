@@ -18,20 +18,25 @@ type ParsedDiag struct {
 	Token      string   // the label immediately before .diag.<zone>
 }
 
-// isSetOption returns true if label is a set-option (set-cookie-*, set-ede-*, set-flags-*, set-rcode-*, set-status-*, set-id-*, set-ttl-*, set-answer-*, set-answer-plaintext-*).
+// isSetOption returns true if label is a set-option (set-cookie-*, set-ede-*, set-noedns, set-flags-*, set-rcode-*, set-status-*, set-id-*, set-nsid-*, set-ttl-*, set-answer-*, set-answer-plaintext-*).
 func isSetOption(label string) bool {
-	return strings.HasPrefix(label, prefixSetCookie) ||
+	return label == labelSetNoEDNS ||
+		strings.HasPrefix(label, prefixSetCookie) ||
 		strings.HasPrefix(label, prefixSetEDE) ||
 		strings.HasPrefix(label, prefixSetFlags) ||
 		strings.HasPrefix(label, prefixSetRcode) ||
 		strings.HasPrefix(label, prefixSetStatus) ||
 		strings.HasPrefix(label, prefixSetID) ||
+		strings.HasPrefix(label, prefixSetNSID) ||
 		strings.HasPrefix(label, prefixSetTTL) ||
 		strings.HasPrefix(label, prefixSetAnswer)
 }
 
 // isValidSetOption returns true if the set-option label is valid (parseable). Used to return NXDOMAIN for invalid set-option-only names.
 func isValidSetOption(label string) bool {
+	if label == labelSetNoEDNS {
+		return true
+	}
 	if strings.HasPrefix(label, prefixSetCookie) {
 		return isValidCookieHex(label[len(prefixSetCookie):])
 	}
@@ -54,6 +59,9 @@ func isValidSetOption(label string) bool {
 	if strings.HasPrefix(label, prefixSetID) {
 		_, ok := parseSetIDValue(label[len(prefixSetID):])
 		return ok
+	}
+	if strings.HasPrefix(label, prefixSetNSID) {
+		return label != prefixSetNSID // non-empty suffix
 	}
 	if strings.HasPrefix(label, prefixSetTTL) {
 		nStr := label[len(prefixSetTTL):]

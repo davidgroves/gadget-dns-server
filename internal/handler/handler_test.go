@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/hex"
 	"net"
 	"strings"
 	"testing"
@@ -47,18 +48,48 @@ func TestHandler_Handle_MyIP_A(t *testing.T) {
 	if msg.Rcode != dns.RcodeSuccess {
 		t.Fatalf("rcode=%d", msg.Rcode)
 	}
-	if len(msg.Answer) != 2 {
-		t.Fatalf("len(Answer)=%d want 2 (A + AAAA)", len(msg.Answer))
+	if len(msg.Answer) != 1 {
+		t.Fatalf("len(Answer)=%d want 1 (A only)", len(msg.Answer))
 	}
 	if a, ok := msg.Answer[0].(*dns.A); !ok {
-		t.Fatalf("first RR not A")
+		t.Fatalf("Answer[0] not A")
 	} else if !a.A.Equal(net.ParseIP("192.168.1.1")) {
 		t.Errorf("A=%s", a.A)
 	}
-	if aaaa, ok := msg.Answer[1].(*dns.AAAA); !ok {
-		t.Fatalf("second RR not AAAA")
+	if len(msg.Extra) != 1 {
+		t.Fatalf("len(Extra)=%d want 1 (AAAA in Additional)", len(msg.Extra))
+	}
+	if aaaa, ok := msg.Extra[0].(*dns.AAAA); !ok {
+		t.Fatalf("Extra[0] not AAAA")
 	} else if !aaaa.AAAA.Equal(net.IPv6zero) {
 		t.Errorf("AAAA placeholder=%s", aaaa.AAAA)
+	}
+}
+
+func TestHandler_Handle_MyIP_AAAA(t *testing.T) {
+	h := testHandler("example.com")
+	req := new(dns.Msg)
+	req.SetQuestion("myip.example.com.", dns.TypeAAAA)
+	addr, _ := net.ResolveUDPAddr("udp", "[::1]:5353")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	if len(msg.Answer) != 1 {
+		t.Fatalf("len(Answer)=%d want 1 (AAAA only)", len(msg.Answer))
+	}
+	if aaaa, ok := msg.Answer[0].(*dns.AAAA); !ok {
+		t.Fatalf("Answer[0] not AAAA")
+	} else if !aaaa.AAAA.Equal(net.IPv6loopback) {
+		t.Errorf("AAAA=%s", aaaa.AAAA)
+	}
+	if len(msg.Extra) != 1 {
+		t.Fatalf("len(Extra)=%d want 1 (A in Additional)", len(msg.Extra))
+	}
+	if a, ok := msg.Extra[0].(*dns.A); !ok {
+		t.Fatalf("Extra[0] not A")
+	} else if !a.A.Equal(net.IPv4zero) {
+		t.Errorf("A placeholder=%s", a.A)
 	}
 }
 
@@ -298,6 +329,62 @@ func TestHandler_Handle_TTLN(t *testing.T) {
 	}
 }
 
+func TestHandler_Handle_EdnsPadN(t *testing.T) {
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+
+	// TXT: response has EDNS padding to >= 256 bytes
+	req := new(dns.Msg)
+	req.SetQuestion("ednspad-256.example.com.", dns.TypeTXT)
+	req.SetEdns0(4096, false)
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess || len(msg.Answer) != 1 {
+		t.Fatalf("TXT: rcode=%d len(Answer)=%d", msg.Rcode, len(msg.Answer))
+	}
+	packed, err := msg.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packed) < 256 {
+		t.Errorf("ednspad-256 TXT response wire size=%d want >= 256", len(packed))
+	}
+
+	// A: response has A record and EDNS padding
+	req.SetQuestion("ednspad-256.example.com.", dns.TypeA)
+	msgA := h.Handle(req, addr, "")
+	if msgA.Rcode != dns.RcodeSuccess || len(msgA.Answer) != 1 {
+		t.Fatalf("A: rcode=%d len(Answer)=%d", msgA.Rcode, len(msgA.Answer))
+	}
+	if _, ok := msgA.Answer[0].(*dns.A); !ok {
+		t.Fatalf("A: Answer[0] not *dns.A")
+	}
+	packedA, _ := msgA.Pack()
+	if len(packedA) < 256 {
+		t.Errorf("ednspad-256 A response wire size=%d want >= 256", len(packedA))
+	}
+
+	// AAAA: response has AAAA record and EDNS padding
+	req.SetQuestion("ednspad-256.example.com.", dns.TypeAAAA)
+	msgAAAA := h.Handle(req, addr, "")
+	if msgAAAA.Rcode != dns.RcodeSuccess || len(msgAAAA.Answer) != 1 {
+		t.Fatalf("AAAA: rcode=%d len(Answer)=%d", msgAAAA.Rcode, len(msgAAAA.Answer))
+	}
+	if _, ok := msgAAAA.Answer[0].(*dns.AAAA); !ok {
+		t.Fatalf("AAAA: Answer[0] not *dns.AAAA")
+	}
+	packedAAAA, _ := msgAAAA.Pack()
+	if len(packedAAAA) < 256 {
+		t.Errorf("ednspad-256 AAAA response wire size=%d want >= 256", len(packedAAAA))
+	}
+
+	// Invalid ednspad-N (below min) should be NXDOMAIN
+	req.SetQuestion("ednspad-99.example.com.", dns.TypeTXT)
+	msg2 := h.Handle(req, addr, "")
+	if msg2.Rcode != dns.RcodeNameError {
+		t.Errorf("ednspad-99 (below min): rcode=%d want NXDOMAIN", msg2.Rcode)
+	}
+}
+
 func TestHandler_Handle_SizeN(t *testing.T) {
 	h := testHandler("example.com")
 	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
@@ -306,7 +393,14 @@ func TestHandler_Handle_SizeN(t *testing.T) {
 	req.SetEdns0(4096, false)
 	msg := h.Handle(req, addr, "")
 	if msg.Rcode != dns.RcodeSuccess || len(msg.Answer) != 1 {
-		t.Fatalf("rcode=%d len=%d", msg.Rcode, len(msg.Answer))
+		t.Fatalf("rcode=%d len(Answer)=%d", msg.Rcode, len(msg.Answer))
+	}
+	txt, ok := msg.Answer[0].(*dns.TXT)
+	if !ok {
+		t.Fatalf("Answer[0] not *dns.TXT")
+	}
+	if len(txt.Txt) < 1 || txt.Txt[0] != "size-256" {
+		t.Errorf("TXT first string=%q want size-256; Txt=%v", txt.Txt[0], txt.Txt)
 	}
 	packed, err := msg.Pack()
 	if err != nil {
@@ -315,11 +409,17 @@ func TestHandler_Handle_SizeN(t *testing.T) {
 	if len(packed) < 256 {
 		t.Errorf("size-256 response wire size=%d want >= 256", len(packed))
 	}
-	// Invalid size-N should be NXDOMAIN
+	// size-N is TXT only: A query gets NODATA
+	req.SetQuestion("size-256.example.com.", dns.TypeA)
+	msgA := h.Handle(req, addr, "")
+	if msgA.Rcode != dns.RcodeSuccess || len(msgA.Answer) != 0 || len(msgA.Ns) != 1 {
+		t.Errorf("size-N A: rcode=%d len(Answer)=%d len(Ns)=%d want NODATA", msgA.Rcode, len(msgA.Answer), len(msgA.Ns))
+	}
+	// Invalid size-N (below min) is NXDOMAIN
 	req.SetQuestion("size-99.example.com.", dns.TypeTXT)
 	msg2 := h.Handle(req, addr, "")
 	if msg2.Rcode != dns.RcodeNameError {
-		t.Errorf("size-99 (below min): rcode=%d want NXDOMAIN", msg2.Rcode)
+		t.Errorf("size-99: rcode=%d want NXDOMAIN", msg2.Rcode)
 	}
 }
 
@@ -533,6 +633,256 @@ func TestHandler_EDNS_BadVers(t *testing.T) {
 	}
 	if msg.IsEdns0() == nil || msg.IsEdns0().Version() != 0 {
 		t.Error("FinalizeResponse must not overwrite BADVERS OPT")
+	}
+}
+
+func TestHandler_NSID_Default(t *testing.T) {
+	h := testHandler("example.com", func(c *Config) { c.Hostname = "ns1.example.com" })
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	req := new(dns.Msg)
+	req.SetQuestion("example.com.", dns.TypeSOA)
+	req.SetEdns0(4096, false)
+	req.IsEdns0().Option = append(req.IsEdns0().Option, &dns.EDNS0_NSID{Nsid: ""})
+	msg := h.Handle(req, addr, "")
+	h.FinalizeResponse(req, msg)
+	opt := msg.IsEdns0()
+	if opt == nil {
+		t.Fatal("expected OPT in response")
+	}
+	var nsidOpt *dns.EDNS0_NSID
+	for _, o := range opt.Option {
+		if n, ok := o.(*dns.EDNS0_NSID); ok {
+			nsidOpt = n
+			break
+		}
+	}
+	if nsidOpt == nil {
+		t.Fatal("expected NSID option in response when client sent NSID")
+	}
+	decoded, err := hex.DecodeString(nsidOpt.Nsid)
+	if err != nil {
+		t.Fatalf("NSID not valid hex: %v", err)
+	}
+	if string(decoded) != "ns1.example.com" {
+		t.Errorf("NSID=%q (decoded from %q) want ns1.example.com", string(decoded), nsidOpt.Nsid)
+	}
+}
+
+func TestHandler_NSID_SetNSID(t *testing.T) {
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	req := new(dns.Msg)
+	req.SetQuestion("set-nsid-my-server-1.example.com.", dns.TypeTXT)
+	req.SetEdns0(4096, false)
+	msg := h.Handle(req, addr, "")
+	h.FinalizeResponse(req, msg)
+	opt := msg.IsEdns0()
+	if opt == nil {
+		t.Fatal("expected OPT in response")
+	}
+	var nsidOpt *dns.EDNS0_NSID
+	for _, o := range opt.Option {
+		if n, ok := o.(*dns.EDNS0_NSID); ok {
+			nsidOpt = n
+			break
+		}
+	}
+	if nsidOpt == nil {
+		t.Fatal("expected NSID option from set-nsid gadget")
+	}
+	decoded, err := hex.DecodeString(nsidOpt.Nsid)
+	if err != nil {
+		t.Fatalf("NSID not valid hex: %v", err)
+	}
+	if string(decoded) != "my-server-1" {
+		t.Errorf("NSID=%q (decoded from %q) want my-server-1", string(decoded), nsidOpt.Nsid)
+	}
+}
+
+func TestHandler_NSID_SetNSID_OverridesDefault(t *testing.T) {
+	h := testHandler("example.com", func(c *Config) { c.Hostname = "ns1.example.com" })
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	req := new(dns.Msg)
+	req.SetQuestion("set-nsid-custom.example.com.", dns.TypeTXT)
+	req.SetEdns0(4096, false)
+	req.IsEdns0().Option = append(req.IsEdns0().Option, &dns.EDNS0_NSID{Nsid: ""})
+	msg := h.Handle(req, addr, "")
+	h.FinalizeResponse(req, msg)
+	opt := msg.IsEdns0()
+	if opt == nil {
+		t.Fatal("expected OPT in response")
+	}
+	var nsidOpt *dns.EDNS0_NSID
+	for _, o := range opt.Option {
+		if n, ok := o.(*dns.EDNS0_NSID); ok {
+			nsidOpt = n
+			break
+		}
+	}
+	if nsidOpt == nil {
+		t.Fatal("expected NSID option")
+	}
+	decoded, _ := hex.DecodeString(nsidOpt.Nsid)
+	if string(decoded) != "custom" {
+		t.Errorf("set-nsid should override default: NSID=%q want custom", string(decoded))
+	}
+}
+
+func TestHandler_SetNoEDNS(t *testing.T) {
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	req := new(dns.Msg)
+	req.SetQuestion("set-noedns.example.com.", dns.TypeTXT)
+	req.SetEdns0(4096, false)
+	msg := h.Handle(req, addr, "")
+	h.FinalizeResponse(req, msg)
+	if msg.IsEdns0() != nil {
+		t.Error("set-noedns: response must not include OPT record")
+	}
+}
+
+func TestHandler_SetNoEDNS_WithGadget(t *testing.T) {
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	req := new(dns.Msg)
+	req.SetQuestion("set-noedns.myip.example.com.", dns.TypeA)
+	req.SetEdns0(4096, false)
+	msg := h.Handle(req, addr, "")
+	h.FinalizeResponse(req, msg)
+	if msg.IsEdns0() != nil {
+		t.Error("set-noedns.myip: response must not include OPT record")
+	}
+}
+
+func TestHandler_SetNoEDNS_TruncateTo512(t *testing.T) {
+	// set-noedns with a response that would exceed 512 bytes: must set TC and truncate to 512 (RFC 1034/1035)
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	req := new(dns.Msg)
+	req.SetQuestion("set-noedns.size-600.example.com.", dns.TypeTXT)
+	req.SetEdns0(4096, false)
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess || len(msg.Answer) != 1 {
+		t.Fatalf("Handle: rcode=%d len(Answer)=%d", msg.Rcode, len(msg.Answer))
+	}
+	h.FinalizeResponse(req, msg)
+	if msg.IsEdns0() != nil {
+		t.Error("set-noedns: response must not include OPT after FinalizeResponse")
+	}
+	if !msg.Truncated {
+		t.Error("set-noedns with large response: Truncated must be true")
+	}
+	packed, err := msg.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packed) > 512 {
+		t.Errorf("set-noedns response size=%d must be <= 512 (RFC 1034/1035)", len(packed))
+	}
+}
+
+func TestHandler_SetNoEDNS_TakesPriorityOverEDNSOptions(t *testing.T) {
+	// set-noedns must take priority: combined with set-cookie, set-ede, set-nsid, or client NSID, response has no OPT
+	h := testHandler("example.com", func(c *Config) { c.Hostname = "ns1.example.com" })
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	tests := []string{
+		"set-noedns.set-cookie-616263.example.com.",
+		"set-cookie-616263.set-noedns.example.com.",
+		"set-noedns.set-ede-5-foo.example.com.",
+		"set-noedns.set-nsid-custom.example.com.",
+	}
+	for _, qname := range tests {
+		req := new(dns.Msg)
+		req.SetQuestion(qname, dns.TypeTXT)
+		req.SetEdns0(4096, false)
+		req.IsEdns0().Option = append(req.IsEdns0().Option, &dns.EDNS0_NSID{Nsid: ""})
+		msg := h.Handle(req, addr, "")
+		h.FinalizeResponse(req, msg)
+		if msg.IsEdns0() != nil {
+			t.Errorf("set-noedns must take priority: %q response must not include OPT", qname)
+		}
+	}
+}
+
+func TestHandler_CH_HostnameBind(t *testing.T) {
+	h := testHandler("example.com", func(c *Config) { c.Hostname = "ns1.example.com" })
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	req := new(dns.Msg)
+	req.Question = []dns.Question{{Name: "hostname.bind.", Qtype: dns.TypeTXT, Qclass: dns.ClassCHAOS}}
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d want Success", msg.Rcode)
+	}
+	if len(msg.Answer) != 1 {
+		t.Fatalf("len(Answer)=%d want 1", len(msg.Answer))
+	}
+	txt, ok := msg.Answer[0].(*dns.TXT)
+	if !ok {
+		t.Fatalf("Answer[0] not TXT")
+	}
+	if txt.Hdr.Class != dns.ClassCHAOS {
+		t.Errorf("TXT Class=%d want CH (3)", txt.Hdr.Class)
+	}
+	if len(txt.Txt) != 1 || txt.Txt[0] != "ns1.example.com" {
+		t.Errorf("TXT Txt=%v want [ns1.example.com]", txt.Txt)
+	}
+	// Default hostname is domain when not set
+	h2 := testHandler("example.com")
+	req2 := new(dns.Msg)
+	req2.Question = []dns.Question{{Name: "hostname.bind.", Qtype: dns.TypeTXT, Qclass: dns.ClassCHAOS}}
+	msg2 := h2.Handle(req2, addr, "")
+	if len(msg2.Answer) != 1 {
+		t.Fatalf("default hostname: len(Answer)=%d want 1", len(msg2.Answer))
+	}
+	if msg2.Answer[0].(*dns.TXT).Txt[0] != "example.com" {
+		t.Errorf("default hostname TXT=%v want [example.com]", msg2.Answer[0].(*dns.TXT).Txt)
+	}
+}
+
+func TestHandler_CH_VersionBind(t *testing.T) {
+	h := testHandler("example.com", func(c *Config) { c.Version = "1.2.3" })
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	req := new(dns.Msg)
+	req.Question = []dns.Question{{Name: "version.bind.", Qtype: dns.TypeTXT, Qclass: dns.ClassCHAOS}}
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d want Success", msg.Rcode)
+	}
+	if len(msg.Answer) != 1 {
+		t.Fatalf("len(Answer)=%d want 1", len(msg.Answer))
+	}
+	txt, ok := msg.Answer[0].(*dns.TXT)
+	if !ok {
+		t.Fatalf("Answer[0] not TXT")
+	}
+	if txt.Hdr.Class != dns.ClassCHAOS {
+		t.Errorf("TXT Class=%d want CH (3)", txt.Hdr.Class)
+	}
+	want := []string{"gadget-dns-server 1.2.3", GitHubProjectURL}
+	if len(txt.Txt) != len(want) || txt.Txt[0] != want[0] || txt.Txt[1] != want[1] {
+		t.Errorf("TXT Txt=%v want %v", txt.Txt, want)
+	}
+	// Empty version shows "unknown"
+	h2 := testHandler("example.com")
+	req2 := new(dns.Msg)
+	req2.Question = []dns.Question{{Name: "version.bind.", Qtype: dns.TypeTXT, Qclass: dns.ClassCHAOS}}
+	msg2 := h2.Handle(req2, addr, "")
+	if msg2.Answer[0].(*dns.TXT).Txt[0] != "gadget-dns-server unknown" {
+		t.Errorf("empty version TXT[0]=%q want gadget-dns-server unknown", msg2.Answer[0].(*dns.TXT).Txt[0])
+	}
+}
+
+func TestHandler_CH_OtherBind_NODATA(t *testing.T) {
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	req := new(dns.Msg)
+	req.Question = []dns.Question{{Name: "authors.bind.", Qtype: dns.TypeTXT, Qclass: dns.ClassCHAOS}}
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d want Success", msg.Rcode)
+	}
+	if len(msg.Answer) != 0 {
+		t.Errorf("len(Answer)=%d want 0 (NODATA)", len(msg.Answer))
 	}
 }
 

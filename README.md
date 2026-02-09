@@ -4,7 +4,7 @@ A Go DNS server that combines [dnssrc](https://github.com/davidgroves/dnssrc)-st
 
 ## Features
 
-- **Gadget endpoints** (under your zone): `myip` / `ip`, `myport` / `port`, `myaddr` / `addr`, `connection` / `myconnection` (URL-like: doh://ip:port, dot://[ipv6]:port, etc.), `counter`, `random`, `edns`, `edns-cs`, `ecs`, `protocol`, `timestamp`, `timestamp0`, `ttl-N` (variable TTL), `size-N` (response size in bytes), `delay-N` / `delay-X-Y` (response delay in ms), `*.qname-min` (QNAME minimization testing: reports QNAME received and resolver query sequence), DNSSEC fail tests under `dnssec-failed.<zone>` (`sig-fail`, `rrsig-expired`, `rrsig-future`, `nsec-missing`, `nsec-wrong-next`, etc.), `<token>.diag` (diag dashboard). Gadgets also work under diag: `<gadget>.<token>.diag.<zone>` (e.g. `connection.foo.diag.<zone>`) runs the gadget and records the query to the diag dashboard for that token. Set-options (`set-cookie-*`, `set-ede-*`, `set-flags-*`, `set-rcode-*`, `set-status-*`, `set-id-*`, `set-ttl-N`, `set-answer-*`, `set-answer-plaintext-*`) can be stacked (e.g. `set-cookie-abc.set-ttl-20.<zone>` applies both); `set-ttl-N` sets the TTL of response RRs to N seconds (0–86400). **set-answer** (A and TXT only): `set-answer-<a>-<b>-<c>-<d>` returns A record(s), `set-answer-plaintext-<string>` returns TXT; multiple labels add multiple values. For **set-cookie**: the value is hex text (e.g. 32 hex chars = 16 bytes for a valid RFC 7873 cookie); invalid hex returns NXDOMAIN; short hex intentionally emits a malformed packet (for testing).
+- **Gadget endpoints** (under your zone): `myip` / `ip`, `myport` / `port`, `myaddr` / `addr`, `connection` / `myconnection` (URL-like: doh://ip:port, dot://[ipv6]:port, etc.), `counter`, `random`, `edns`, `edns-cs`, `ecs`, `protocol`, `timestamp`, `timestamp0`, `ttl-N` (variable TTL), `ednspad-N` (EDNS padding, response size in bytes; A, AAAA, TXT), `size-N` (response size in bytes via random TXT; TXT only), `delay-N` / `delay-X-Y` (response delay in ms), `*.qname-min` (QNAME minimization testing: reports QNAME received and resolver query sequence), DNSSEC fail tests under `dnssec-failed.<zone>` (`sig-fail`, `rrsig-expired`, `rrsig-future`, `nsec-missing`, `nsec-wrong-next`, etc.), `<token>.diag` (diag dashboard). Gadgets also work under diag: `<gadget>.<token>.diag.<zone>` (e.g. `connection.foo.diag.<zone>`) runs the gadget and records the query to the diag dashboard for that token. Set-options (`set-cookie-*`, `set-ede-*`, `set-nsid-*`, `set-noedns`, `set-flags-*`, `set-rcode-*`, `set-status-*`, `set-id-*`, `set-ttl-N`, `set-answer-*`, `set-answer-plaintext-*`) can be stacked (e.g. `set-cookie-abc.set-ttl-20.<zone>` applies both). **set-noedns** (omit EDNS from the response) takes priority over any other set-option or client request that would add EDNS: when present, the response has no OPT record even if combined with `set-cookie-*`, `set-ede-*`, `set-nsid-*`, or client NSID; `set-ttl-N` sets the TTL of response RRs to N seconds (0–86400). **set-answer** (A and TXT only): `set-answer-<a>-<b>-<c>-<d>` returns A record(s), `set-answer-plaintext-<string>` returns TXT; multiple labels add multiple values. For **set-cookie**: the value is hex text (e.g. 32 hex chars = 16 bytes for a valid RFC 7873 cookie); invalid hex returns NXDOMAIN; short hex intentionally emits a malformed packet (for testing).
 - **Transports**: UDP, TCP, DNS over TLS (DoT), DNS over HTTPS (DoH), DNS over QUIC (DoQ)
 - **ACME**: Obtain Let's Encrypt certificates (HTTP-01) and optional background renewal
 - **Single HTTP server** for ACME challenge, `/healthcheck`, `/metrics` (Prometheus), `/feed` (query/response stream)
@@ -121,8 +121,17 @@ For the diag dashboard over HTTPS: (1) apex/www/diag need A/AAAA — use **serve
 
 # Full startup guide.
 
+I recommend running the domain insecure first. Then adding DS records to the parent based on the CDS records.
+
+You NEED the server running to serve the DNS records that the ACME / LetsEncrypt system needs to get your SSL cert, so if you don't do this in the correct order you have a chicken and egg problem.
+
 ```
 $ mkdir keys
 $ mkdir certs
+# Obtain SSL certs.
+$ bin/gadget-dns-server --obtain-cert
+# Setup DNSSEC keys.
 $ bin/gadget-dns-server --generate-zone-keys --domain <your_domain> --dnssec-ksk keys/ksk --dnssec-zsk keys/zsk
+$ bin/gadget-dms-server
+```
 

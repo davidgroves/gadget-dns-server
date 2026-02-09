@@ -22,6 +22,7 @@ type Routes struct {
 	DiagDomain   string        // zone for diag (e.g. example.com); empty = diag disabled
 	EntropyStore *EntropyStore // optional: for /entropy page and result API
 	DoHHandler   http.Handler  // optional: DoH at /dns-query (set when DoH shares port with HTTP TLS)
+	Version      string        // app version shown on index page (e.g. from -ldflags)
 }
 
 // NewRoutes creates routes with default metrics handler.
@@ -533,7 +534,12 @@ func (r *Routes) serveIndex(w http.ResponseWriter) {
 	if zone == "" {
 		zone = "example.com"
 	}
+	version := r.Version
+	if version == "" {
+		version = "dev"
+	}
 	body := strings.ReplaceAll(indexHTML, indexZonePlaceholder, zone)
+	body = strings.ReplaceAll(body, indexVersionPlaceholder, version)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(body))

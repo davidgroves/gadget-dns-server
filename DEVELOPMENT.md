@@ -20,13 +20,6 @@ go test ./...
 
 Integration tests against a live server (UDP, TCP, DoT, DoH, DoQ): run `./integration-tests.sh`. The server must already be running. Set `GADGET_DNS_SERVER`, `GADGET_DNS_ZONE`, and optional port env vars (see `./integration-tests.sh --help`). DoQ tests require [doggo](https://github.com/mr-karan/doggo).
 
-## set-cookie (hex value)
-
-RFC 7873 requires the EDNS Cookie option to be 16 bytes (8-byte client + 8-byte server). The value after `set-cookie-` is **hex text** used directly (e.g. 32 hex chars = 16 bytes). For a valid packet use 32 hex characters (e.g. `set-cookie-24a5ac12345678901234567890123456`). Invalid hex (odd length or non-hex) returns NXDOMAIN. **Short valid hex (e.g. `set-cookie-616263`) intentionally emits a malformed packet**—useful for testing validators or clients.
-
-## qname-min
-
-The `*.qname-min.<zone>` endpoint is for QNAME minimization testing (RFC 7816). The canonical test name uses the 5th label `zzzzzzz` (late in the NSEC order). Querying e.g. `a.b.c.d.zzzzzzz.qname-min.<zone>` returns the QNAME received and the sequence of qnames the server saw (oldest first), with the number of requests—e.g. qname-min, then zzzzzzz.qname-min, then d.zzzzzzz.qname-min.
 
 ## Deployment
 

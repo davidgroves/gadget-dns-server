@@ -59,6 +59,8 @@ type Config struct {
 	NSRecords []string `yaml:"ns_records" env:"GADGET_NS_RECORDS"`
 	// ServerIPs are A/AAAA for zone apex, www, and diag (YAML list or GADGET_SERVER_IPS env)
 	ServerIPs IPList `yaml:"server_ips" env:"-"`
+	// Hostname is the system name returned for CH class hostname.bind (optional; defaults to domain)
+	Hostname string `yaml:"hostname" env:"GADGET_HOSTNAME"`
 
 	// SOA
 	SOAMname   string `yaml:"soa_mname" env:"GADGET_SOA_MNAME"`

@@ -18,6 +18,9 @@ func TestIsSetOption(t *testing.T) {
 		{"set-rcode-3", true},
 		{"set-status-NXDOMAIN", true},
 		{"set-id-1234", true},
+		{"set-nsid-foo", true},
+		{"set-nsid-my-server", true},
+		{"set-noedns", true},
 		{"set-ttl-20", true},
 		{"set-ttl-0", true},
 		{"set-answer-1-2-3-4", true},
@@ -57,6 +60,8 @@ func TestParseTopLevel(t *testing.T) {
 		{"set-rcode-5.example.com", "example.com", ParsedTopLevel{SetOptions: []string{"set-rcode-5"}, Gadget: ""}, true},
 		{"set-status-NXDOMAIN.myip.example.com", "example.com", ParsedTopLevel{SetOptions: []string{"set-status-NXDOMAIN"}, Gadget: "myip"}, true},
 		{"set-id-0xabcd.example.com", "example.com", ParsedTopLevel{SetOptions: []string{"set-id-0xabcd"}, Gadget: ""}, true},
+		{"set-nsid-my-server.example.com", "example.com", ParsedTopLevel{SetOptions: []string{"set-nsid-my-server"}, Gadget: ""}, true},
+		{"set-noedns.example.com", "example.com", ParsedTopLevel{SetOptions: []string{"set-noedns"}, Gadget: ""}, true},
 		{"set-answer-1-2-3-4.set-answer-5-6-7-8.example.com", "example.com", ParsedTopLevel{SetOptions: []string{"set-answer-1-2-3-4", "set-answer-5-6-7-8"}, Gadget: ""}, true},
 	}
 	for _, tt := range tests {
@@ -123,6 +128,10 @@ func TestIsValidSetOption_setAnswer(t *testing.T) {
 		{"set-answer-1-2-3", false},
 		{"set-answer-1-2-3-4-5", false},
 		{"set-answer-256-0-0-1", false},
+		{"set-nsid-foo", true},
+		{"set-nsid-my-server", true},
+		{"set-nsid", false},
+		{"set-noedns", true},
 	}
 	for _, tt := range tests {
 		got := isValidSetOption(tt.label)

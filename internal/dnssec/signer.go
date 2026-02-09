@@ -331,7 +331,7 @@ func (s *Signer) nsecForName(name string, qtype uint16, isNoData bool) []dns.RR 
 	name = dns.Fqdn(strings.ToLower(name))
 	prev, next := s.prevNext(name)
 	// Name exists: NODATA needs NSEC(owner=name, NextDomain=next, TypeBitMap=types at name \ {qtype}).
-	// For NODATA we must use this path even when name is not in existingNames (e.g. delay-10, ttl-N, size-N).
+	// For NODATA we must use this path even when name is not in existingNames (e.g. delay-10, ttl-N, size-N, ednspad-N).
 	if prev == "" && next == "" || isNoData {
 		var nextName string
 		if prev == "" && next == "" {
@@ -492,7 +492,7 @@ func (s *Signer) typesAtName(name string) []uint16 {
 		return []uint16{dns.TypeA, dns.TypeAAAA, dns.TypeTXT}
 	}
 	label := strings.SplitN(nameTrim, ".", 2)[0]
-	// Dynamic gadget names (only TXT): delay-N, ttl-N, timestamp-N, size-N
+	// Dynamic gadget names (only TXT): delay-N, ttl-N, timestamp-N, size-N. ednspad-N supports A, AAAA, TXT (falls through to default).
 	if strings.HasPrefix(label, "delay-") || strings.HasPrefix(label, "ttl-") || strings.HasPrefix(label, "timestamp-") || strings.HasPrefix(label, "size-") {
 		return []uint16{dns.TypeTXT}
 	}

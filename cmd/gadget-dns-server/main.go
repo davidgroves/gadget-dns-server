@@ -280,7 +280,7 @@ func main() {
 		if err != nil {
 			logging.Warn("obtain-cert: could not derive server IPs, apex/www/diag A/AAAA may be missing", "err", err)
 		}
-		obtainHandler := handler.New(setup.HandlerConfigFrom(&cfg, serverIPs, obtainSigner, handler.Config{}))
+		obtainHandler := handler.New(setup.HandlerConfigFrom(&cfg, serverIPs, obtainSigner, handler.Config{Version: getVersion()}))
 		obtainDNS := server.New(server.Config{
 			Handler:         obtainHandler,
 			UDPAddrs:        cfg.UDPAddrs(),
@@ -349,6 +349,7 @@ func main() {
 
 	metricsRecorder := metrics.NewRecorder()
 	h := handler.New(setup.HandlerConfigFrom(&cfg, serverIPs, signer, handler.Config{
+		Version:          getVersion(),
 		DiagRecorder:     diagRecorder,
 		EntropyRecorder:  entropyRecorder,
 		QnameMinRecorder: qnameMinStore,
@@ -361,6 +362,7 @@ func main() {
 	routes.DiagStore = diagStore
 	routes.DiagDomain = cfg.Domain
 	routes.EntropyStore = entropyStore
+	routes.Version = getVersion()
 	// When DoH port equals HTTP TLS port, serve DoH on the same server (avoid binding 443 twice)
 	dohAddrs := cfg.DOHAddrs()
 	if cfg.Ports.DoH == cfg.HTTPTLSPort && cfg.HTTPTLSPort > 0 && cfg.TLSCert != "" && cfg.TLSKey != "" {

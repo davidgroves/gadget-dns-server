@@ -105,10 +105,14 @@ func formatMsg(m *dns.Msg) string {
 }
 
 func classString(class uint16) string {
-	if class == dns.ClassINET {
+	switch class {
+	case dns.ClassINET:
 		return "IN"
+	case dns.ClassCHAOS:
+		return "CH"
+	default:
+		return fmt.Sprintf("CLASS%d", class)
 	}
-	return fmt.Sprintf("CLASS%d", class)
 }
 
 func formatRR(b *strings.Builder, rr dns.RR, indent string) {

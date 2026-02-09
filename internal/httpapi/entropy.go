@@ -38,8 +38,8 @@ type EntropyResult struct {
 	SamplesCount        int      `json:"samples_count"`
 	PortHistogram       [256]int `json:"port_histogram"`
 	IDHistogram         [256]int `json:"id_histogram"`
-	QnameUppercaseCount int      `json:"qname_uppercase_count"` // queries where QNAME had at least one uppercase letter
-	QnameLowercaseCount int      `json:"qname_lowercase_count"` // queries where QNAME had at least one lowercase letter
+	QnameUppercaseCount int      `json:"qname_uppercase_count"` // total uppercase letters across all QNAMEs (0x20)
+	QnameLowercaseCount int      `json:"qname_lowercase_count"` // total lowercase letters across all QNAMEs (0x20)
 	RandomnessScore     float64  `json:"randomness_score"`      // 0–100 from uniformity
 }
 
@@ -200,17 +200,15 @@ func computeEntropyResult(samples []EntropySample) *EntropyResult {
 	}
 }
 
-// qnameCaseCounts returns the number of samples whose QNAME contained at least one uppercase letter and at least one lowercase letter (0x20).
+// qnameCaseCounts returns the total number of uppercase and lowercase letters across all QNAMEs (0x20 character counts).
 func qnameCaseCounts(samples []EntropySample) (uppercaseCount, lowercaseCount int) {
 	for _, s := range samples {
-		if s.Qname == "" {
-			continue
-		}
-		if s.Qname != strings.ToLower(s.Qname) {
-			uppercaseCount++
-		}
-		if s.Qname != strings.ToUpper(s.Qname) {
-			lowercaseCount++
+		for _, r := range s.Qname {
+			if r >= 'A' && r <= 'Z' {
+				uppercaseCount++
+			} else if r >= 'a' && r <= 'z' {
+				lowercaseCount++
+			}
 		}
 	}
 	return uppercaseCount, lowercaseCount

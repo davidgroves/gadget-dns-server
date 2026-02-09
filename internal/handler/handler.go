@@ -42,10 +42,16 @@ const (
 	LabelNSEC3Instead    = "nsec3-instead"
 )
 
+// GitHubProjectURL is the project URL returned in CH version.bind.
+const GitHubProjectURL = "https://github.com/davidgroves/gadget-dns-server"
+
 // Handler implements the gadget DNS responses (dnssrc-compatible).
 type Handler struct {
 	domain   string
 	apexFQDN string
+	// CH class: hostname for hostname.bind, version string for version.bind
+	hostname string
+	version  string
 	// Zone apex config
 	nsRecords []string
 	serverIPs []net.IP
@@ -79,6 +85,8 @@ type soaParams struct {
 // Config for the handler.
 type Config struct {
 	Domain           string
+	Hostname         string // CH hostname.bind (optional; defaults to Domain)
+	Version          string // CH version.bind (e.g. "gadget-dns-server 1.0.0")
 	NSRecords        []string
 	ServerIPs        []net.IP
 	SOAMname         string
@@ -163,9 +171,15 @@ func New(cfg Config) *Handler {
 		// Default apex NS to zone name (in-bailiwick) so NS is always served when domain is set.
 		nsRecords = []string{apexFQDN}
 	}
+	hostname := cfg.Hostname
+	if hostname == "" {
+		hostname = domain
+	}
 	return &Handler{
 		domain:           domain,
 		apexFQDN:         apexFQDN,
+		hostname:         hostname,
+		version:          cfg.Version,
 		nsRecords:        nsRecords,
 		serverIPs:        cfg.ServerIPs,
 		signer:           cfg.Signer,
@@ -240,11 +254,12 @@ func (h *Handler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	_ = w.WriteMsg(msg)
 }
 
-// FinalizeResponse applies post-Handle tweaks: EDNS OPT, DNSKEY TC, and set-cookie/set-ede/set-flags/set-rcode/set-status/set-id from the first label.
+// FinalizeResponse applies post-Handle tweaks: EDNS OPT, default NSID (when client sent NSID), DNSKEY TC, set-noedns (omit OPT), and set-cookie/set-ede/set-nsid/set-flags/set-rcode/set-status/set-id from the first label.
 func (h *Handler) FinalizeResponse(r *dns.Msg, msg *dns.Msg) {
 	// RFC 6891 §7: if the request had EDNS, include OPT in the response (skip for BADVERS — we already set OPT in Handle)
 	udpSize := uint16(512)
-	if reqOpt := r.IsEdns0(); reqOpt != nil && msg.Rcode != dns.RcodeBadVers {
+	var reqOpt *dns.OPT
+	if reqOpt = r.IsEdns0(); reqOpt != nil && msg.Rcode != dns.RcodeBadVers {
 		udpSize = reqOpt.UDPSize()
 		if udpSize == 0 {
 			udpSize = 4096
@@ -284,6 +299,28 @@ func (h *Handler) FinalizeResponse(r *dns.Msg, msg *dns.Msg) {
 			applySetAnswer(msg, setOptions, qnameFQDN, q.Qtype)
 			applySetModifiers(h, r, msg, setOptions)
 		}
+		// RFC 5001: if client sent NSID and response has no NSID yet, add default (same as hostname.bind)
+		if reqOpt != nil && msg.Rcode != dns.RcodeBadVers {
+			if requestHasNSID(reqOpt) {
+				respOpt := msg.IsEdns0()
+				if respOpt != nil && !responseHasNSID(respOpt) {
+					defaultNSID := hex.EncodeToString([]byte(h.hostname))
+					respOpt.Option = append(respOpt.Option, &dns.EDNS0_NSID{Nsid: defaultNSID})
+				}
+			}
+		}
+		// set-noedns: omit EDNS OPT from the response (applied last so it overrides set-cookie, set-ede, set-nsid, default NSID)
+		if hasSetNoEDNS(setOptions) {
+			var newExtra []dns.RR
+			for _, rr := range msg.Extra {
+				if rr.Header().Rrtype != dns.TypeOPT {
+					newExtra = append(newExtra, rr)
+				}
+			}
+			msg.Extra = newExtra
+			// RFC 1034/1035: without EDNS, limit response to 512 bytes; set TC and truncate if required
+			truncateToUDPSize(msg, 512)
+		}
 	}
 }
 
@@ -309,6 +346,31 @@ func (h *Handler) Handle(r *dns.Msg, clientAddr net.Addr, transport string) *dns
 	}
 	q := r.Question[0]
 	qname := strings.TrimSuffix(strings.ToLower(q.Name), ".")
+
+	// CH class: hostname.bind and version.bind (RFC 4892)
+	if q.Qclass == dns.ClassCHAOS {
+		answerName := dns.Fqdn(q.Name)
+		if qname == "hostname.bind" && q.Qtype == dns.TypeTXT {
+			msg.Answer = append(msg.Answer, &dns.TXT{
+				Hdr: dns.RR_Header{Name: answerName, Rrtype: dns.TypeTXT, Class: dns.ClassCHAOS, Ttl: 0},
+				Txt: []string{h.hostname},
+			})
+			return msg
+		}
+		if qname == "version.bind" && q.Qtype == dns.TypeTXT {
+			versionLine := "gadget-dns-server " + h.version
+			if versionLine == "gadget-dns-server " {
+				versionLine = "gadget-dns-server unknown"
+			}
+			msg.Answer = append(msg.Answer, &dns.TXT{
+				Hdr: dns.RR_Header{Name: answerName, Rrtype: dns.TypeTXT, Class: dns.ClassCHAOS, Ttl: 0},
+				Txt: []string{versionLine, GitHubProjectURL},
+			})
+			return msg
+		}
+		// Other CH names: NODATA
+		return msg
+	}
 
 	// Must be under our zone
 	if qname != h.domain && !strings.HasSuffix(qname, "."+h.domain) {
@@ -735,19 +797,43 @@ func (h *Handler) handleGadget(name string, qtype uint16, label string, req *dns
 		h.setNodataSOA(msg)
 		return msg
 	}
+	// set-nsid-<value>: force EDNS NSID in response (applied in FinalizeResponse).
+	if strings.HasPrefix(label, prefixSetNSID) {
+		if label == prefixSetNSID {
+			return nil
+		}
+		h.setNodataSOA(msg)
+		return msg
+	}
+	// set-noedns: omit EDNS OPT from response (applied in FinalizeResponse).
+	if label == labelSetNoEDNS {
+		h.setNodataSOA(msg)
+		return msg
+	}
 
-	// size-N: response wire size approximately N bytes (128 <= N <= 4096).
-	if strings.HasPrefix(label, "size-") {
-		nStr := label[5:]
+	// ednspad-N: response wire size approximately N bytes (128 <= N <= 4096), EDNS padding on all record types.
+	if strings.HasPrefix(label, "ednspad-") {
+		nStr := label[len("ednspad-"):]
 		n, err := strconv.ParseUint(nStr, 10, 32)
 		if err != nil || n < minSizeN || n > maxSizeN {
 			return nil
 		}
-		if qtype != dns.TypeTXT {
+		switch qtype {
+		case dns.TypeA:
+			msg.Answer = append(msg.Answer, &dns.A{
+				Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl},
+				A:   net.IPv4zero,
+			})
+		case dns.TypeAAAA:
+			msg.Answer = append(msg.Answer, &dns.AAAA{
+				Hdr:  dns.RR_Header{Name: name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl},
+				AAAA: net.IPv6zero,
+			})
+		case dns.TypeTXT:
+			appendTXT(msg, name, ttl, "ednspad-"+nStr)
+		default:
 			h.setNodataSOA(msg)
-			return msg
 		}
-		appendTXT(msg, name, ttl, "size-"+nStr)
 		if msg.IsEdns0() == nil {
 			msg.SetEdns0(4096, false)
 		}
@@ -768,6 +854,49 @@ func (h *Handler) handleGadget(name string, qtype uint16, label string, req *dns
 			opt.Option = append(opt.Option, &dns.EDNS0_PADDING{Padding: make([]byte, paddingLen)})
 		}
 		return msg
+	}
+
+	// size-N: response wire size approximately N bytes (128 <= N <= 4096), TXT only. Random TXT content to reach size.
+	if strings.HasPrefix(label, "size-") {
+		nStr := label[5:]
+		n, err := strconv.ParseUint(nStr, 10, 32)
+		if err != nil || n < minSizeN || n > maxSizeN {
+			return nil
+		}
+		if qtype != dns.TypeTXT {
+			h.setNodataSOA(msg)
+			return msg
+		}
+		if msg.IsEdns0() == nil {
+			msg.SetEdns0(4096, false)
+		}
+		txtRR := &dns.TXT{
+			Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: ttl},
+			Txt: []string{"size-" + nStr},
+		}
+		msg.Answer = append(msg.Answer, txtRR)
+		for {
+			packed, err := msg.Pack()
+			if err != nil {
+				return msg
+			}
+			if len(packed) >= int(n) {
+				return msg
+			}
+			need := int(n) - len(packed)
+			if need > 255 {
+				need = 255
+			}
+			if need <= 0 {
+				return msg
+			}
+			const sizeNChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+			buf := make([]byte, need)
+			for i := range buf {
+				buf[i] = sizeNChars[rand.Intn(len(sizeNChars))]
+			}
+			txtRR.Txt = append(txtRR.Txt, string(buf))
+		}
 	}
 
 	// delay-N or delay-X-Y: delay response by N ms or random between X and Y ms.
@@ -846,26 +975,48 @@ func (h *Handler) handleGadget(name string, qtype uint16, label string, req *dns
 			appendTXT(msg, name, ttl, ip.String())
 			return msg
 		}
-		// Always return both A and AAAA so DNSSEC NSEC bitmap is consistent (no NODATA for A/AAAA).
+		// Requested type in Answer; other type in Additional.
 		if qtype == dns.TypeA || qtype == dns.TypeAAAA {
 			if ip4 := ip.To4(); ip4 != nil {
-				msg.Answer = append(msg.Answer, &dns.A{
-					Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl},
-					A:   ip4,
-				})
-				msg.Answer = append(msg.Answer, &dns.AAAA{
-					Hdr:  dns.RR_Header{Name: name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl},
-					AAAA: net.IPv6zero, // placeholder when client is IPv4-only
-				})
+				if qtype == dns.TypeA {
+					msg.Answer = append(msg.Answer, &dns.A{
+						Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl},
+						A:   ip4,
+					})
+					msg.Extra = append(msg.Extra, &dns.AAAA{
+						Hdr:  dns.RR_Header{Name: name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl},
+						AAAA: net.IPv6zero, // placeholder when client is IPv4-only
+					})
+				} else {
+					msg.Answer = append(msg.Answer, &dns.AAAA{
+						Hdr:  dns.RR_Header{Name: name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl},
+						AAAA: net.IPv6zero,
+					})
+					msg.Extra = append(msg.Extra, &dns.A{
+						Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl},
+						A:   ip4,
+					})
+				}
 			} else {
-				msg.Answer = append(msg.Answer, &dns.A{
-					Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl},
-					A:   net.IPv4zero, // placeholder when client is IPv6-only
-				})
-				msg.Answer = append(msg.Answer, &dns.AAAA{
-					Hdr:  dns.RR_Header{Name: name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl},
-					AAAA: ip,
-				})
+				if qtype == dns.TypeA {
+					msg.Answer = append(msg.Answer, &dns.A{
+						Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl},
+						A:   net.IPv4zero, // placeholder when client is IPv6-only
+					})
+					msg.Extra = append(msg.Extra, &dns.AAAA{
+						Hdr:  dns.RR_Header{Name: name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl},
+						AAAA: ip,
+					})
+				} else {
+					msg.Answer = append(msg.Answer, &dns.AAAA{
+						Hdr:  dns.RR_Header{Name: name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl},
+						AAAA: ip,
+					})
+					msg.Extra = append(msg.Extra, &dns.A{
+						Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl},
+						A:   net.IPv4zero,
+					})
+				}
 			}
 			return msg
 		}
@@ -1019,9 +1170,11 @@ const (
 	prefixSetRcode           = "set-rcode-"
 	prefixSetStatus          = "set-status-"
 	prefixSetID              = "set-id-"
+	prefixSetNSID            = "set-nsid-"
 	prefixSetTTL             = "set-ttl-"
 	prefixSetAnswer          = "set-answer-"
 	prefixSetAnswerPlaintext = "set-answer-plaintext-"
+	labelSetNoEDNS           = "set-noedns"
 )
 
 // applySetAnswer replaces msg.Answer with A or TXT records from set-answer-* / set-answer-plaintext-* options.
@@ -1094,7 +1247,7 @@ func parseSetAnswerAValue(label string) net.IP {
 	return net.IPv4(octets[0], octets[1], octets[2], octets[3])
 }
 
-// applySetModifiers applies each set-option (set-cookie-*, set-ede-*, set-flags-*, set-rcode-*, set-status-*, set-id-*, set-ttl-*, set-answer-*) to msg.
+// applySetModifiers applies each set-option (set-cookie-*, set-ede-*, set-nsid-*, set-flags-*, set-rcode-*, set-status-*, set-id-*, set-ttl-*, set-answer-*) to msg.
 // set-answer-* is applied earlier (in FinalizeResponse before this) so that set-ttl applies to the new Answer RRs.
 // Multiple options are applied in order so that e.g. set-cookie and set-ttl can be stacked.
 func applySetModifiers(h *Handler, r *dns.Msg, msg *dns.Msg, setOptions []string) {
@@ -1162,6 +1315,17 @@ func applySetModifiers(h *Handler, r *dns.Msg, msg *dns.Msg, setOptions []string
 			rest := label[len(prefixSetID):]
 			if id, ok := parseSetIDValue(rest); ok {
 				msg.Id = id
+			}
+			continue
+		}
+		if strings.HasPrefix(label, prefixSetNSID) {
+			nsidVal := label[len(prefixSetNSID):]
+			if nsidVal != "" {
+				ensureOPT()
+				opt := msg.IsEdns0()
+				if opt != nil {
+					opt.Option = append(opt.Option, &dns.EDNS0_NSID{Nsid: hex.EncodeToString([]byte(nsidVal))})
+				}
 			}
 			continue
 		}
@@ -1357,6 +1521,60 @@ func parseIP(host string) net.IP {
 		return net.ParseIP(host[1 : len(host)-1])
 	}
 	return nil
+}
+
+// requestHasNSID returns true if the request OPT contains an NSID option (client asked for NSID).
+func requestHasNSID(opt *dns.OPT) bool {
+	for _, o := range opt.Option {
+		if _, ok := o.(*dns.EDNS0_NSID); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// responseHasNSID returns true if the response OPT already has an NSID option (e.g. from set-nsid).
+func responseHasNSID(opt *dns.OPT) bool {
+	for _, o := range opt.Option {
+		if _, ok := o.(*dns.EDNS0_NSID); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSetNoEDNS returns true if setOptions contains set-noedns (omit EDNS OPT from response).
+func hasSetNoEDNS(setOptions []string) bool {
+	for _, label := range setOptions {
+		if label == labelSetNoEDNS {
+			return true
+		}
+	}
+	return false
+}
+
+// truncateToUDPSize ensures the packed message fits in maxSize bytes. If not, sets Truncated and removes RRs from Answer, Ns, then Extra until it fits (RFC 1034/1035).
+func truncateToUDPSize(msg *dns.Msg, maxSize int) {
+	packed, err := msg.Pack()
+	if err != nil || len(packed) <= maxSize {
+		return
+	}
+	msg.Truncated = true
+	for {
+		if len(msg.Answer) > 0 {
+			msg.Answer = msg.Answer[:len(msg.Answer)-1]
+		} else if len(msg.Ns) > 0 {
+			msg.Ns = msg.Ns[:len(msg.Ns)-1]
+		} else if len(msg.Extra) > 0 {
+			msg.Extra = msg.Extra[:len(msg.Extra)-1]
+		} else {
+			break
+		}
+		packed, err = msg.Pack()
+		if err != nil || len(packed) <= maxSize {
+			break
+		}
+	}
 }
 
 func ednsOptionsString(req *dns.Msg) string {

@@ -3,6 +3,9 @@ package httpapi
 // indexZonePlaceholder is replaced with the configured domain when serving the index.
 const indexZonePlaceholder = "__ZONE__"
 
+// indexVersionPlaceholder is replaced with the app version when serving the index.
+const indexVersionPlaceholder = "__VERSION__"
+
 // indexHTML is the static instructions page served at /. End-user only: how to query each gadget.
 // __ZONE__ is replaced with the zone (domain from config) when serving.
 const indexHTML = `<!DOCTYPE html>
@@ -17,6 +20,7 @@ const indexHTML = `<!DOCTYPE html>
 		html { font-size: 1.0625rem; }
 		body { font-family: system-ui, -apple-system, sans-serif; max-width: 52rem; margin: 0 auto; padding: 1.5rem 2rem; line-height: 1.6; background: var(--bg); color: var(--text); min-height: 100vh; }
 		h1 { font-size: 1.5rem; margin-top: 0; font-weight: 600; }
+		h1 .version { font-size: 0.85rem; font-weight: 500; color: var(--text-muted); }
 		h2 { font-size: 1.1rem; margin-top: 1.5rem; font-weight: 600; color: var(--text); }
 		a { color: var(--accent); text-decoration: none; }
 		a:hover { text-decoration: underline; }
@@ -29,23 +33,28 @@ const indexHTML = `<!DOCTYPE html>
 		.pre-wrap:last-child { margin-bottom: 0; }
 		.pre-wrap .copy-btn { position: absolute; top: 0.5rem; right: 0.5rem; background: var(--accent); color: #fff; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
 		.pre-wrap .copy-btn:hover { background: var(--accent-hover); }
+		.type-badge { display: inline-block; margin-left: 0.35rem; padding: 0.1em 0.4em; font-size: 0.75rem; font-weight: 500; background: var(--border); color: var(--text-muted); border-radius: 4px; }
+		.set-options-group { margin-bottom: 1.25rem; padding: 1rem; border-radius: 6px; border: 1px solid var(--border); background: #1a1a24; }
+		.set-options-group .endpoint { background: #1a1a24; margin-bottom: 1rem; }
+		.set-options-group .endpoint:last-child { margin-bottom: 0; }
 	</style>
 </head>
 <body>
-	<h1>Gadget DNS</h1>
+	<script>var GADGET_ZONE = '__ZONE__';</script>
+	<h1>Gadget DNS <span class="version">__VERSION__</span></h1>
 	<p>This server answers DNS queries for gadget names under zone <code>__ZONE__</code>. Each name returns a specific value (your IP, a counter, time, etc.). Copy and paste the <code>dig</code> commands below.</p>
-	<div class="note"><strong>Tip:</strong> Use <code>dig @__ZONE__ …</code> to query this server directly, or use your normal resolver so it forwards to this server.</div>
+	<div class="note"><strong>Tip:</strong> Use <code>dig @__ZONE__ …</code> to query this server directly, or use your normal resolver so it forwards to this server. Shift+click Copy to paste commands with <code>@__ZONE__</code> already in each line.</div>
 	<div class="note">Want to run your own instance? Use this project: <a href="https://github.com/davidgroves/gadget-dns-server" target="_blank" rel="noopener">github.com/davidgroves/gadget-dns-server</a>.</div>
 
 	<div class="endpoint">
-		<h2>help</h2>
+		<h2>help <span class="type-badge">TXT</span></h2>
 		<p>TXT record with a link to this docs page (<code>https://www.__ZONE__</code>).</p>
 		<pre>dig +short help.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>myip / ip</h2>
-		<p>Your client's IP address. <strong>Recommend using TXT</strong> so you always get the real address. A/AAAA return both record types for DNSSEC; if the packet came via IPv6, A is <code>0.0.0.0</code> (placeholder), and if via IPv4, AAAA is <code>::</code> (placeholder). Aliases: <code>ip.__ZONE__</code>.</p>
+		<h2>myip / ip <span class="type-badge">A</span> <span class="type-badge">AAAA</span> <span class="type-badge">TXT</span></h2>
+		<p>Your client's IP address. <strong>Recommend using TXT</strong> so you always get the real address. A/AAAA return both record types for DNSSEC; if the packet came via IPv6, A is <code>0.0.0.0</code> (placeholder), and if via IPv4, AAAA is <code>::</code> (placeholder).</p>
 		<pre>dig +short myip.__ZONE__ TXT</pre>
 		<pre>dig +short ip.__ZONE__ TXT</pre>
 		<pre>dig +short myip.__ZONE__ A</pre>
@@ -53,34 +62,34 @@ const indexHTML = `<!DOCTYPE html>
 	</div>
 
 	<div class="endpoint">
-		<h2>myport / port</h2>
-		<p>Your client's source port (TXT). Alias: <code>port.__ZONE__</code>.</p>
+		<h2>myport / port <span class="type-badge">TXT</span></h2>
+		<p>Your client's source port (TXT).</p>
 		<pre>dig +short myport.__ZONE__ TXT</pre>
 		<pre>dig +short port.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>myaddr / addr</h2>
-		<p>Your client's address and port (TXT, two strings). Alias: <code>addr.__ZONE__</code>.</p>
+		<h2>myaddr / addr <span class="type-badge">TXT</span></h2>
+		<p>Your client's address and port (TXT, two strings).</p>
 		<pre>dig +short myaddr.__ZONE__ TXT</pre>
 		<pre>dig +short addr.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>connection / myconnection</h2>
+		<h2>connection / myconnection <span class="type-badge">TXT</span></h2>
 		<p>URL-like representation of how the client connected (TXT): <code>doh://&lt;ip4&gt;:&lt;port&gt;</code>, <code>dot://[&lt;ipv6&gt;]:&lt;port&gt;</code>, <code>doq://</code>, <code>udp://</code>, or <code>tcp://</code>.</p>
 		<pre>dig +short connection.__ZONE__ TXT</pre>
 		<pre>dig +short myconnection.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>counter</h2>
+		<h2>counter <span class="type-badge">TXT</span></h2>
 		<p>Per-server incrementing counter (TXT).</p>
 		<pre>dig +short counter.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>random</h2>
+		<h2>random <span class="type-badge">A</span> <span class="type-badge">AAAA</span> <span class="type-badge">TXT</span></h2>
 		<p>Random value (A, AAAA, or TXT).</p>
 		<pre>dig +short random.__ZONE__ A</pre>
 		<pre>dig +short random.__ZONE__ AAAA</pre>
@@ -88,27 +97,27 @@ const indexHTML = `<!DOCTYPE html>
 	</div>
 
 	<div class="endpoint">
-		<h2>protocol</h2>
+		<h2>protocol <span class="type-badge">TXT</span></h2>
 		<p>Transport used: UDP, TCP, DoT, DoH, or DoQ (TXT).</p>
 		<pre>dig +short protocol.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>timestamp-N</h2>
+		<h2>timestamp-N <span class="type-badge">TXT</span></h2>
 		<p>Current time in milliseconds (TXT), with TTL = N seconds (0–86400). Example: <code>timestamp-60</code>, <code>timestamp-0</code>.</p>
 		<pre>dig +short timestamp-60.__ZONE__ TXT</pre>
 		<pre>dig +short timestamp-0.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>ttl-N</h2>
+		<h2>ttl-N <span class="type-badge">TXT</span></h2>
 		<p>Current Unix time in seconds, with TTL = N (0–86400). Example: <code>ttl-60</code>, <code>ttl-0</code>.</p>
 		<pre>dig +short ttl-60.__ZONE__ TXT</pre>
 		<pre>dig +short ttl-0.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>edns</h2>
+		<h2>edns <span class="type-badge">TXT</span></h2>
 		<p>EDNS options present on the request (TXT).</p>
 		<pre>dig +short edns.__ZONE__ TXT</pre>
 	</div>
@@ -121,13 +130,22 @@ const indexHTML = `<!DOCTYPE html>
 	</div>
 
 	<div class="endpoint">
-		<h2>cookie</h2>
+		<h2>cookie <span class="type-badge">TXT</span></h2>
 		<p>EDNS Cookie (RFC 7873) from the request, echoed as TXT. Use <code>+cookie</code> with dig to send a cookie.</p>
 		<pre>dig +short +cookie cookie.__ZONE__ TXT</pre>
 	</div>
 
+	<div class="set-options-group">
 	<div class="endpoint">
-		<h2>set-cookie-&lt;string&gt;</h2>
+		<h2>Stacking set-options <span class="type-badge">TXT</span></h2>
+		<p>You can combine multiple set-options in one query by listing them left to right. All apply: e.g. <code>set-cookie-*</code> (hex value), <code>set-ede-*</code>, <code>set-nsid-*</code>, <code>set-noedns</code>, <code>set-flags-*</code>, <code>set-rcode-*</code>, <code>set-status-*</code>, <code>set-id-*</code>, <code>set-ttl-N</code>, <code>set-answer-*</code>. Example: <code>set-cookie-616263.set-ttl-20.token.diag.__ZONE__</code> sets both the EDNS cookie (hex 616263) and the response TTL to 20, and records to diag under token <code>token</code>. <strong>Exception:</strong> <code>set-noedns</code> always wins—when present, the response will have no OPT record even if other set-options (e.g. <code>set-cookie-*</code>, <code>set-nsid-*</code>) or client NSID would normally add EDNS.</p>
+		<pre>dig +short set-cookie-616263.set-ttl-20.__ZONE__ TXT</pre>
+		<pre>dig +short set-rcode-3.set-id-0x1234.__ZONE__ TXT</pre>
+		<pre>dig +short set-cookie-78797a.set-ede-5-foo.mytoken.diag.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>set-cookie-&lt;string&gt; <span class="type-badge">TXT</span></h2>
 		<p>Force the response to include an EDNS Cookie option with the given value (e.g. return a cookie when the client did not send one, or override the cookie). The string is hex-encoded; for a valid packet the cookie must be <strong>16 bytes</strong> (RFC 7873: 8-byte client + 8-byte server), so use a 16-character string (e.g. <code>set-cookie-1234567890123456</code>). <strong>Setting a short cookie (e.g. <code>set-cookie-abc</code>) intentionally emits a malformed packet</strong>—useful for testing.</p>
 		<pre>dig +short set-cookie-1234567890123456.__ZONE__ TXT</pre>
 		<pre>dig +short +cookie set-cookie-24a5ac1234567890.__ZONE__ TXT</pre>
@@ -135,14 +153,30 @@ const indexHTML = `<!DOCTYPE html>
 	</div>
 
 	<div class="endpoint">
-		<h2>set-ede-&lt;number&gt;-&lt;string&gt;</h2>
+		<h2>set-ede-&lt;number&gt;-&lt;string&gt; <span class="type-badge">TXT</span></h2>
 		<p>Force the response to include an Extended DNS Error (RFC 8914) option with the given code and optional text, even when the response is otherwise successful.</p>
 		<pre>dig +short set-ede-5.__ZONE__ TXT</pre>
 		<pre>dig +short set-ede-5-test.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>set-flags-&lt;bitmask&gt;</h2>
+		<h2>set-nsid-&lt;string&gt; <span class="type-badge">TXT</span></h2>
+		<p>Force the response to include an EDNS NSID (Name Server Identifier, RFC 5001) option with the given string. When the client sends an NSID option (e.g. <code>dig +nsid</code>), the server returns NSID by default using the same value as <code>hostname.bind</code> (CH class). Use <code>set-nsid-*</code> to override that with a custom identifier (e.g. <code>set-nsid-my-server-1</code>). The value is the literal string after the prefix (hyphens allowed).</p>
+		<pre>dig +nsid set-nsid-my-server.__ZONE__ TXT</pre>
+		<pre>dig +nsid __ZONE__ SOA</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>set-noedns <span class="type-badge">TXT</span></h2>
+		<p>Omit EDNS from the response: do not include an OPT record even when the client sent EDNS. Useful for testing clients that must handle non-EDNS responses.</p>
+		<p><strong>Priority:</strong> <code>set-noedns</code> takes priority over any other set-option or behavior that would add EDNS to the response. When <code>set-noedns</code> is combined with <code>set-cookie-*</code>, <code>set-ede-*</code>, <code>set-nsid-*</code>, or when the client sends an NSID option (e.g. <code>dig +nsid</code>), the response will still have <strong>no OPT record</strong>.</p>
+		<pre>dig set-noedns.__ZONE__ TXT</pre>
+		<pre>dig set-noedns.myip.__ZONE__ A</pre>
+		<pre>dig set-noedns.set-cookie-616263.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>set-flags-&lt;bitmask&gt; <span class="type-badge">TXT</span></h2>
 		<p>Set the DNS response header flags to the given 16-bit value. Accepts binary (e.g. <code>100010100</code>), decimal (e.g. <code>23</code>), or hex with <code>0x</code> prefix (e.g. <code>0x3c</code>). The low 4 bits set the RCODE; higher bits set QR, Opcode, AA, TC, RD, RA, Z, AD, CD (see RFC 1035 / 4035).</p>
 		<p><strong>Examples:</strong></p>
 		<ul style="margin:0.25rem 0 0.5rem 0; padding-left:1.25rem; color:var(--text-muted);">
@@ -158,28 +192,28 @@ const indexHTML = `<!DOCTYPE html>
 	</div>
 
 	<div class="endpoint">
-		<h2>set-rcode-&lt;value&gt; / set-status-&lt;value&gt;</h2>
+		<h2>set-rcode-&lt;value&gt; / set-status-&lt;value&gt; <span class="type-badge">TXT</span></h2>
 		<p>Set the DNS response RCODE (status code). Accepts decimal (0–15 or extended), hex with <code>0x</code> prefix, or RCODE name (e.g. <code>NOERROR</code>, <code>NXDOMAIN</code>, <code>SERVFAIL</code>, <code>REFUSED</code>). <code>set-status-</code> is an alias for <code>set-rcode-</code>.</p>
 		<pre>dig +short set-rcode-3.__ZONE__ TXT</pre>
 		<pre>dig +short set-status-NXDOMAIN.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>set-id-&lt;value&gt;</h2>
+		<h2>set-id-&lt;value&gt; <span class="type-badge">TXT</span></h2>
 		<p>Set the DNS response transaction ID (16-bit). Accepts decimal (0–65535) or hex with <code>0x</code> prefix.</p>
 		<pre>dig +short set-id-12345.__ZONE__ TXT</pre>
 		<pre>dig +short set-id-0xabcd.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>set-ttl-&lt;N&gt;</h2>
+		<h2>set-ttl-&lt;N&gt; <span class="type-badge">TXT</span></h2>
 		<p>Set the TTL of all response RRs (Answer and Authority) to N seconds (0–86400). Useful for testing TTL behavior. Can be stacked with other set-options (e.g. <code>set-cookie-616263.set-ttl-20.__ZONE__</code>).</p>
 		<pre>dig +short set-ttl-60.__ZONE__ TXT</pre>
 		<pre>dig +short set-cookie-616263.set-ttl-20.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>set-answer-&lt;value&gt; (A and TXT only)</h2>
+		<h2>set-answer-&lt;value&gt; (A and TXT only) <span class="type-badge">A</span> <span class="type-badge">TXT</span></h2>
 		<p>Override the response Answer section with the given values. <strong>Only A and TXT record types are supported.</strong> You can stack multiple values; each <code>set-answer-*</code> label adds one value.</p>
 		<p><strong>A records:</strong> <code>set-answer-&lt;a&gt;-&lt;b&gt;-&lt;c&gt;-&lt;d&gt;</code> — four hyphen-separated octets (0–255), e.g. <code>set-answer-1-2-3-4</code> returns A record <code>1.2.3.4</code>. Multiple labels return multiple A records.</p>
 		<p><strong>TXT records:</strong> <code>set-answer-plaintext-&lt;string&gt;</code> — the rest of the label is the TXT string (hyphens allowed). Multiple <code>set-answer-plaintext-*</code> labels produce one TXT RR with multiple strings.</p>
@@ -187,30 +221,31 @@ const indexHTML = `<!DOCTYPE html>
 		<pre>dig +short set-answer-plaintext-hello.set-answer-plaintext-world.__ZONE__ TXT</pre>
 		<pre>dig +short set-answer-1-2-3-4.set-answer-5-6-7-8.foo.diag.__ZONE__ A</pre>
 	</div>
-
-	<div class="endpoint">
-		<h2>Stacking set-options</h2>
-		<p>You can combine multiple set-options in one query by listing them left to right. All apply: e.g. <code>set-cookie-*</code> (hex value), <code>set-ede-*</code>, <code>set-flags-*</code>, <code>set-rcode-*</code>, <code>set-status-*</code>, <code>set-id-*</code>, <code>set-ttl-N</code>, <code>set-answer-*</code>. Example: <code>set-cookie-616263.set-ttl-20.token.diag.__ZONE__</code> sets both the EDNS cookie (hex 616263) and the response TTL to 20, and records to diag under token <code>token</code>.</p>
-		<pre>dig +short set-cookie-616263.set-ttl-20.__ZONE__ TXT</pre>
-		<pre>dig +short set-rcode-3.set-id-0x1234.__ZONE__ TXT</pre>
-		<pre>dig +short set-cookie-78797a.set-ede-5-foo.mytoken.diag.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>size-N</h2>
-		<p>Response wire size approximately N bytes (128–4096). Uses EDNS padding (TXT).</p>
+		<h2>ednspad-N <span class="type-badge">A / AAAA / TXT</span></h2>
+		<p>Response wire size approximately N bytes (128–4096). Uses EDNS padding on all record types.</p>
+		<pre>dig +short ednspad-256.__ZONE__ A</pre>
+		<pre>dig +short ednspad-256.__ZONE__ AAAA</pre>
+		<pre>dig +short ednspad-256.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>size-N <span class="type-badge">TXT</span></h2>
+		<p>Response wire size approximately N bytes (128–4096). Returns random TXT content to reach the requested size. TXT only.</p>
 		<pre>dig +short size-256.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>delay-N / delay-X-Y</h2>
+		<h2>delay-N / delay-X-Y <span class="type-badge">TXT</span></h2>
 		<p>Delay the response by N milliseconds, or by a random number of milliseconds between X and Y (inclusive). Useful for timeout and latency testing. Example: <code>delay-500</code>, <code>delay-100-500</code>.</p>
 		<pre>dig +short delay-500.__ZONE__ TXT</pre>
 		<pre>dig +short delay-100-500.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>qname-min</h2>
+		<h2>qname-min <span class="type-badge">TXT</span></h2>
 		<p>QNAME minimization testing (<a href="https://datatracker.ietf.org/doc/html/rfc7816" target="_blank" rel="noopener">RFC 7816</a>). Query any name under <code>*.qname-min.__ZONE__</code> (e.g. <code>a.b.c.d.zzzzzzz.qname-min.__ZONE__</code>). The TXT response includes the QNAME received and the sequence of qnames the server saw from that resolver (oldest first), with the number of requests—e.g. <code>qname-min.__ZONE__</code>, then <code>zzzzzzz.qname-min.__ZONE__</code>, then <code>d.zzzzzzz.qname-min.__ZONE__</code>. Because all names are in the same zone on this server, the full sequence is visible.</p>
 		<pre>dig +short zzzzzzz.qname-min.__ZONE__ TXT</pre>
 		<pre>dig +short a.b.c.d.zzzzzzz.qname-min.__ZONE__ TXT</pre>
@@ -258,7 +293,7 @@ const indexHTML = `<!DOCTYPE html>
 
 	<!-- Keep diag at the bottom: add new endpoints above this comment. -->
 	<div class="endpoint">
-		<h2>token.diag and gadget.token.diag</h2>
+		<h2>token.diag and gadget.token.diag <span class="type-badge">TXT</span></h2>
 		<p>Record a query for a token, then open the dashboard in a browser. Replace <code>mytoken</code> with any label.</p>
 		<pre>dig +short mytoken.diag.__ZONE__ TXT</pre>
 		<p>Then open <a href="https://diag.__ZONE__/">https://diag.__ZONE__/</a> to enter your token, or go directly to <code>https://diag.__ZONE__/&lt;token&gt;</code> to view recorded queries for that token.</p>
@@ -276,8 +311,15 @@ const indexHTML = `<!DOCTYPE html>
 		btn.type = 'button';
 		btn.className = 'copy-btn';
 		btn.textContent = 'Copy';
-		btn.onclick = function() {
-			navigator.clipboard.writeText(pre.textContent.trim()).then(function() {
+		btn.title = 'Copy. Shift+click to copy with @server in every command.';
+		btn.onclick = function(e) {
+			var text = pre.textContent.trim();
+			if (e.shiftKey && typeof GADGET_ZONE === 'string') {
+				text = text.split('\n').map(function(line) {
+					return line.replace(/^dig /, 'dig @' + GADGET_ZONE + ' ');
+				}).join('\n');
+			}
+			navigator.clipboard.writeText(text).then(function() {
 				btn.textContent = 'Copied!';
 				setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
 			});
@@ -430,9 +472,11 @@ const entropyHTML = `<!DOCTYPE html>
 						var r = data.result;
 						var portCls = r.port_rating === 'GREAT' ? 'great' : (r.port_rating === 'GOOD' ? 'good' : 'poor');
 						var idCls = r.id_rating === 'GREAT' ? 'great' : (r.id_rating === 'GOOD' ? 'good' : 'poor');
-						var n = r.samples_count || 1;
-						var upperPct = n ? (100 * (r.qname_uppercase_count || 0) / n).toFixed(1) : '0';
-						var lowerPct = n ? (100 * (r.qname_lowercase_count || 0) / n).toFixed(1) : '0';
+						var upper = r.qname_uppercase_count || 0;  // uppercase letter count across all QNAMEs
+						var lower = r.qname_lowercase_count || 0;  // lowercase letter count across all QNAMEs
+						var totalLetters = upper + lower;
+						var upperPct = totalLetters ? (100 * upper / totalLetters).toFixed(1) : '0';
+						var lowerPct = totalLetters ? (100 * lower / totalLetters).toFixed(1) : '0';
 						var html = '<dl><dt>Port rating</dt><dd class="' + portCls + '">' + r.port_rating + '</dd>' +
 							'<dt>Port stddev</dt><dd>' + r.port_stddev + '</dd>' +
 							'<dt>Port χ²</dt><dd>' + (r.port_chi2 != null ? r.port_chi2 : '—') + '</dd>' +
@@ -440,8 +484,8 @@ const entropyHTML = `<!DOCTYPE html>
 							'<dt>ID stddev</dt><dd>' + r.id_stddev + '</dd>' +
 							'<dt>ID χ²</dt><dd>' + (r.id_chi2 != null ? r.id_chi2 : '—') + '</dd>' +
 							'<dt>Samples</dt><dd>' + r.samples_count + '</dd>' +
-							'<dt><a href="https://datatracker.ietf.org/doc/html/rfc5452#section-6.2" target="_blank" rel="noopener">0x20</a> Uppercase</dt><dd>' + (r.qname_uppercase_count || 0) + ' (' + upperPct + '%)</dd>' +
-							'<dt><a href="https://datatracker.ietf.org/doc/html/rfc5452#section-6.2" target="_blank" rel="noopener">0x20</a> Lowercase</dt><dd>' + (r.qname_lowercase_count || 0) + ' (' + lowerPct + '%)</dd>' +
+							'<dt><a href="https://datatracker.ietf.org/doc/html/rfc5452#section-6.2" target="_blank" rel="noopener">0x20</a> Uppercase</dt><dd>' + upper + ' chars (' + upperPct + '%)</dd>' +
+							'<dt><a href="https://datatracker.ietf.org/doc/html/rfc5452#section-6.2" target="_blank" rel="noopener">0x20</a> Lowercase</dt><dd>' + lower + ' chars (' + lowerPct + '%)</dd>' +
 							'<dt>Randomness score</dt><dd>' + r.randomness_score + '/100 <small>(<a href="https://en.wikipedia.org/wiki/Chi-squared_test" target="_blank" rel="noopener">chi-squared</a> uniformity)</small></dd>';
 						html += '</dl>';
 						html += '<p style="margin-top:0.75rem;color:var(--text-muted)">Port histogram (256 buckets)</p>' + barChart(r.port_histogram || [], null, 'histogram-port');

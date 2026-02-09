@@ -42,6 +42,8 @@ func NewSignerFromConfig(cfg *config.Config, logCDS bool) (handler.Signer, error
 func HandlerConfigFrom(cfg *config.Config, serverIPs []net.IP, signer handler.Signer, overrides handler.Config) handler.Config {
 	hc := handler.Config{
 		Domain:           cfg.Domain,
+		Hostname:         cfg.Hostname,
+		Version:          overrides.Version,
 		NSRecords:        cfg.NSRecords,
 		ServerIPs:        serverIPs,
 		SOAMname:         cfg.SOAMname,
