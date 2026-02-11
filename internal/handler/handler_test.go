@@ -1111,6 +1111,34 @@ func TestHandler_SetTTL_Alone(t *testing.T) {
 	}
 }
 
+func TestHandler_SetDelay(t *testing.T) {
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	// set-delay-0.counter: counter response with no delay
+	req := new(dns.Msg)
+	req.SetQuestion("set-delay-0.counter.example.com.", dns.TypeTXT)
+	start := time.Now()
+	msg := h.Handle(req, addr, "")
+	h.FinalizeResponse(req, msg)
+	elapsed := time.Since(start)
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Errorf("set-delay-0.counter: rcode=%d want Success", msg.Rcode)
+	}
+	if len(msg.Answer) != 1 {
+		t.Fatalf("set-delay-0.counter: len(Answer)=%d want 1", len(msg.Answer))
+	}
+	if elapsed > 50*time.Millisecond {
+		t.Errorf("set-delay-0 took %v, expected near-instant", elapsed)
+	}
+	// set-delay-only (set-options only): NODATA after delay
+	req.SetQuestion("set-delay-0.example.com.", dns.TypeTXT)
+	msg = h.Handle(req, addr, "")
+	h.FinalizeResponse(req, msg)
+	if msg.Rcode != dns.RcodeSuccess || len(msg.Ns) < 1 {
+		t.Errorf("set-delay-0 only: rcode=%d len(Ns)=%d", msg.Rcode, len(msg.Ns))
+	}
+}
+
 func TestHandler_SetAnswer_A(t *testing.T) {
 	h := testHandler("example.com")
 	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
@@ -1133,18 +1161,18 @@ func TestHandler_SetAnswer_A(t *testing.T) {
 	}
 }
 
-func TestHandler_SetAnswer_TXT_Plaintext(t *testing.T) {
+func TestHandler_SetAnswer_TXT(t *testing.T) {
 	h := testHandler("example.com")
 	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
 	req := new(dns.Msg)
-	req.SetQuestion("set-answer-plaintext-hello.set-answer-plaintext-world.example.com.", dns.TypeTXT)
+	req.SetQuestion("set-answer-txt-hello.set-answer-txt-world.example.com.", dns.TypeTXT)
 	msg := h.Handle(req, addr, "")
 	h.FinalizeResponse(req, msg)
 	if msg.Rcode != dns.RcodeSuccess {
-		t.Errorf("set-answer-plaintext TXT: rcode=%d want Success", msg.Rcode)
+		t.Errorf("set-answer-txt TXT: rcode=%d want Success", msg.Rcode)
 	}
 	if len(msg.Answer) != 1 {
-		t.Fatalf("set-answer-plaintext TXT: len(Answer)=%d want 1", len(msg.Answer))
+		t.Fatalf("set-answer-txt TXT: len(Answer)=%d want 1", len(msg.Answer))
 	}
 	txt, ok := msg.Answer[0].(*dns.TXT)
 	if !ok {
@@ -1265,6 +1293,73 @@ func TestHandler_Help_TXT(t *testing.T) {
 	want := "https://www.dnssrc.fibrecat.org"
 	if len(txt.Txt) != 1 || txt.Txt[0] != want {
 		t.Errorf("help TXT: Txt=%v want [%s]", txt.Txt, want)
+	}
+}
+
+func TestHandler_TxtTest(t *testing.T) {
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	tests := []struct {
+		qname string
+		want  string
+	}{
+		{"alert.txt-test.example.com.", `<script>alert(1)</script>`},
+		{"href.txt-test.example.com.", "https://example.com/"},
+		{"bobby-tables.txt-test.example.com.", `' OR '1'='1`},
+	}
+	for _, tt := range tests {
+		req := new(dns.Msg)
+		req.SetQuestion(tt.qname, dns.TypeTXT)
+		msg := h.Handle(req, addr, "")
+		if msg.Rcode != dns.RcodeSuccess {
+			t.Errorf("%s: rcode=%d want Success", tt.qname, msg.Rcode)
+			continue
+		}
+		if len(msg.Answer) != 1 {
+			t.Errorf("%s: len(Answer)=%d want 1", tt.qname, len(msg.Answer))
+			continue
+		}
+		txt, ok := msg.Answer[0].(*dns.TXT)
+		if !ok {
+			t.Errorf("%s: Answer[0] is %T want *dns.TXT", tt.qname, msg.Answer[0])
+			continue
+		}
+		if len(txt.Txt) != 1 || txt.Txt[0] != tt.want {
+			t.Errorf("%s: Txt=%v want [%q]", tt.qname, txt.Txt, tt.want)
+		}
+	}
+}
+
+func TestHandler_NsTestUnresolvable(t *testing.T) {
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	req := new(dns.Msg)
+	req.SetQuestion("unresolvable.ns-test.example.com.", dns.TypeA)
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("unresolvable.ns-test: rcode=%d want Success", msg.Rcode)
+	}
+	if len(msg.Answer) != 0 {
+		t.Fatalf("unresolvable.ns-test: len(Answer)=%d want 0 (referral)", len(msg.Answer))
+	}
+	if len(msg.Ns) != 2 {
+		t.Fatalf("unresolvable.ns-test: len(Ns)=%d want 2", len(msg.Ns))
+	}
+	for i, rr := range msg.Ns {
+		ns, ok := rr.(*dns.NS)
+		if !ok {
+			t.Errorf("Ns[%d] is %T want *dns.NS", i, rr)
+			continue
+		}
+		if ns.Hdr.Rrtype != dns.TypeNS {
+			t.Errorf("Ns[%d] Rrtype=%d want NS", i, ns.Hdr.Rrtype)
+		}
+	}
+	// ns1 and ns2 should be present
+	names := []string{msg.Ns[0].(*dns.NS).Ns, msg.Ns[1].(*dns.NS).Ns}
+	if !((strings.HasSuffix(names[0], "ns1.unresolvable.ns-test.example.com.") && strings.HasSuffix(names[1], "ns2.unresolvable.ns-test.example.com.")) ||
+		(strings.HasSuffix(names[0], "ns2.unresolvable.ns-test.example.com.") && strings.HasSuffix(names[1], "ns1.unresolvable.ns-test.example.com."))) {
+		t.Errorf("unresolvable.ns-test: Ns targets=%v want ns1/ns2.unresolvable.ns-test.example.com.", names)
 	}
 }
 

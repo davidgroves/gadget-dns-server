@@ -1,10 +1,14 @@
 # gadget-dns-server
 
-A Go DNS server that combines [dnssrc](https://github.com/davidgroves/dnssrc)-style gadget responses with [dns-sendfile](https://github.com/davidgroves/dns-sendfile)-style transports (UDP, TCP, DoT, DoH, DoQ), ACME certificate acquisition, and optional DNSSEC signing.
+A Go based gadget DNS server that is the 3rd evolution of [dnssrc](https://github.com/davidgroves/dnssrc).
+
+Supports UDP, TCP, DoH, DoT, DoH, DoQ, ACME certificate acquisition, and optional DNSSEC signing. 
+
+Some testing features inspired by [whoami.akamai.net](https://whoami.akamai.net) and [nsec3.uk](https://nsec3.uk).
 
 ## Features
 
-- **Gadget endpoints** (under your zone): `myip` / `ip`, `myport` / `port`, `myaddr` / `addr`, `connection` / `myconnection` (URL-like: doh://ip:port, dot://[ipv6]:port, etc.), `counter`, `random`, `edns`, `edns-cs`, `ecs`, `protocol`, `timestamp`, `timestamp0`, `ttl-N` (variable TTL), `ednspad-N` (EDNS padding, response size in bytes; A, AAAA, TXT), `size-N` (response size in bytes via random TXT; TXT only), `delay-N` / `delay-X-Y` (response delay in ms), `*.qname-min` (QNAME minimization testing: reports QNAME received and resolver query sequence), DNSSEC fail tests under `dnssec-failed.<zone>` (`sig-fail`, `rrsig-expired`, `rrsig-future`, `nsec-missing`, `nsec-wrong-next`, etc.), `<token>.diag` (diag dashboard). Gadgets also work under diag: `<gadget>.<token>.diag.<zone>` (e.g. `connection.foo.diag.<zone>`) runs the gadget and records the query to the diag dashboard for that token. Set-options (`set-cookie-*`, `set-ede-*`, `set-nsid-*`, `set-noedns`, `set-flags-*`, `set-rcode-*`, `set-status-*`, `set-id-*`, `set-ttl-N`, `set-answer-*`, `set-answer-plaintext-*`) can be stacked (e.g. `set-cookie-abc.set-ttl-20.<zone>` applies both). **set-noedns** (omit EDNS from the response) takes priority over any other set-option or client request that would add EDNS: when present, the response has no OPT record even if combined with `set-cookie-*`, `set-ede-*`, `set-nsid-*`, or client NSID; `set-ttl-N` sets the TTL of response RRs to N seconds (0–86400). **set-answer** (A and TXT only): `set-answer-<a>-<b>-<c>-<d>` returns A record(s), `set-answer-plaintext-<string>` returns TXT; multiple labels add multiple values. For **set-cookie**: the value is hex text (e.g. 32 hex chars = 16 bytes for a valid RFC 7873 cookie); invalid hex returns NXDOMAIN; short hex intentionally emits a malformed packet (for testing).
+- **Gadget endpoints** (under your zone): `myip` / `ip`, `myport` / `port`, `myaddr` / `addr`, `connection` / `myconnection` (URL-like: doh://ip:port, dot://[ipv6]:port, etc.), `counter`, `random`, `edns`, `edns-cs`, `ecs`, `protocol`, `timestamp`, `timestamp0`, `ttl-N` (variable TTL), `ednspad-N` (EDNS padding, response size in bytes; A, AAAA, TXT), `size-N` (response size in bytes via random TXT; TXT only), `delay-N` / `delay-X-Y` (response delay in ms), `*.qname-min` (QNAME minimization testing: reports QNAME received and resolver query sequence), DNSSEC fail tests under `dnssec-failed.<zone>` (`sig-fail`, `rrsig-expired`, `rrsig-future`, `nsec-missing`, `nsec-wrong-next`, etc.), TXT display/injection tests under `txt-test.<zone>` (`alert`, `href`, `bobby-tables`), referral test `unresolvable.ns-test.<zone>` (NS to unresolvable names → resolvers should SERVFAIL), `<token>.diag` (diag dashboard). Gadgets also work under diag: `<gadget>.<token>.diag.<zone>` (e.g. `connection.foo.diag.<zone>`) runs the gadget and records the query to the diag dashboard for that token. Set-options (`set-cookie-*`, `set-ede-*`, `set-nsid-*`, `set-noedns`, `set-flags-*`, `set-rcode-*`, `set-status-*`, `set-id-*`, `set-ttl-N`, `set-delay-N` / `set-delay-X-Y`, `set-answer-*`, `set-answer-txt-*`) can be stacked (e.g. `set-cookie-abc.set-ttl-20.<zone>` applies both). **set-noedns** (omit EDNS from the response) takes priority over any other set-option or client request that would add EDNS: when present, the response has no OPT record even if combined with `set-cookie-*`, `set-ede-*`, `set-nsid-*`, or client NSID; `set-ttl-N` sets the TTL of all response RRs to N seconds (0–86400); it does not add records by itself—stack with a gadget or set-answer. **set-delay-N** / **set-delay-X-Y** delay the response by N ms or random X–Y ms (like delay-N but applies to any query) (e.g. `set-ttl-60.counter.<zone>` or `set-ttl-20.set-answer-txt-hello.<zone>`). **set-answer** (A and TXT only): `set-answer-<a>-<b>-<c>-<d>` returns A record(s), `set-answer-txt-<string>` returns TXT; multiple labels add multiple values. For **set-cookie**: the value is hex text (e.g. 32 hex chars = 16 bytes for a valid RFC 7873 cookie); invalid hex returns NXDOMAIN; short hex intentionally emits a malformed packet (for testing).
 - **Transports**: UDP, TCP, DNS over TLS (DoT), DNS over HTTPS (DoH), DNS over QUIC (DoQ)
 - **ACME**: Obtain Let's Encrypt certificates (HTTP-01) and optional background renewal
 - **Single HTTP server** for ACME challenge, `/healthcheck`, `/metrics` (Prometheus), `/feed` (query/response stream)
@@ -24,8 +28,8 @@ go build -o gadget-dns-server ./cmd/gadget-dns-server
 ./gadget-dns-server --domain example.com --udp-port 5353 --tcp-port 5353 --bind 127.0.0.1 --http-port 8080
 
 # Query
-dig +short -p 5353 @127.0.0.1 myip.example.com A
-dig +short -p 5353 @127.0.0.1 counter.example.com TXT
+dig -p 5353 @127.0.0.1 myip.example.com A
+dig -p 5353 @127.0.0.1 counter.example.com TXT
 ```
 
 ## DNSSEC
@@ -68,26 +72,25 @@ To make these persistent (e.g. on Linux), add the same lines to a file under `/e
 **Testing DoQ:** `dig` does not support DNS over QUIC. Use **[doggo](https://github.com/mr-karan/doggo)** (a dig-like CLI with DoQ support). Install: `go install github.com/mr-karan/doggo/cmd/doggo@latest` or `brew install doggo`. Query directly at your server (default DoQ port 8853):
 
 ```bash
-doggo myip.dnssrc.example.com @quic://dnssrc.example.com:8853
-doggo TXT counter.dnssrc.example.com @quic://dnssrc.example.com:8853 --short
+doggo TXT connection.dnssrc.example.com @quic://dnssrc.example.com:8853
 ```
+
+The response will show <code>doq://…</code>, confirming the query used QUIC.
 
 ## DoT and DoH with dig
 
-You need a **modern dig** (BIND 9.17+ for `+https`, BIND 9.19+ for `+tls`). Query **directly at the server** (use `@your-server`), not via a recursive resolver.
+You need a **modern dig** (BIND 9.17+ for `+https`, BIND 9.19+ for `+tls`). Query **directly at the server** (use `@your-server`), not via a recursive resolver. Use the <strong>connection</strong> gadget so the TXT response shows the transport in use (<code>dot://…</code> or <code>doh://…</code>).
 
 **DoT (port 853):**
 
 ```bash
-dig +tls @dnssrc.example.com myip.dnssrc.example.com A
-dig +short +tls @dnssrc.example.com counter.dnssrc.example.com TXT
+dig +tls @dnssrc.example.com connection.dnssrc.example.com TXT
 ```
 
 **DoH (port 443, path `/dns-query`):**
 
 ```bash
-dig +https @dnssrc.example.com myip.dnssrc.example.com A
-dig +short +https @dnssrc.example.com counter.dnssrc.example.com TXT
+dig +https @dnssrc.example.com connection.dnssrc.example.com TXT
 ```
 
 Replace `dnssrc.example.com` with your server’s hostname (the one in your TLS certificate). DoT uses port 853 by default; DoH uses HTTPS on port 443.

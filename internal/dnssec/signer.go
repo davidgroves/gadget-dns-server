@@ -69,6 +69,12 @@ func NewSigner(zone string, ksk, zsk *KeyPair, opts ...SignerOpt) *Signer {
 		dns.Fqdn("rrsig-wrong-rrset." + failBase),
 		dns.Fqdn("sig-fail." + failBase),
 		dns.Fqdn("www." + zone),
+		dns.Fqdn("alert.txt-test." + zone),
+		dns.Fqdn("bobby-tables.txt-test." + zone),
+		dns.Fqdn("href.txt-test." + zone),
+		dns.Fqdn("ns1.unresolvable.ns-test." + zone),
+		dns.Fqdn("ns2.unresolvable.ns-test." + zone),
+		dns.Fqdn("unresolvable.ns-test." + zone),
 	}
 	// RFC 4034 §6.1: NSEC chain uses canonical DNS name order (compare labels from right, case-insensitive).
 	sort.Slice(names, func(i, j int) bool { return dnsCanonicalLess(names[i], names[j]) })

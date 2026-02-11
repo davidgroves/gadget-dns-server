@@ -23,8 +23,11 @@ func TestIsSetOption(t *testing.T) {
 		{"set-noedns", true},
 		{"set-ttl-20", true},
 		{"set-ttl-0", true},
+		{"set-delay-0", true},
+		{"set-delay-100", true},
+		{"set-delay-10-50", true},
 		{"set-answer-1-2-3-4", true},
-		{"set-answer-plaintext-hello", true},
+		{"set-answer-txt-hello", true},
 		{"connection", false},
 		{"myip", false},
 		{"set-cookie", false},
@@ -115,6 +118,29 @@ func TestParseDiag_setAnswer(t *testing.T) {
 	}
 }
 
+func TestIsValidSetOption_setDelay(t *testing.T) {
+	tests := []struct {
+		label string
+		want  bool
+	}{
+		{"set-delay-0", true},
+		{"set-delay-100", true},
+		{"set-delay-10-50", true},
+		{"set-delay-300000", true},
+		{"set-delay-300001", false},
+		{"set-delay-50-50", true},
+		{"set-delay-50-10", false},
+		{"set-delay", false},
+		{"set-delay-", false},
+	}
+	for _, tt := range tests {
+		got := isValidSetOption(tt.label)
+		if got != tt.want {
+			t.Errorf("isValidSetOption(%q)=%v want %v", tt.label, got, tt.want)
+		}
+	}
+}
+
 func TestIsValidSetOption_setAnswer(t *testing.T) {
 	tests := []struct {
 		label string
@@ -123,8 +149,8 @@ func TestIsValidSetOption_setAnswer(t *testing.T) {
 		{"set-answer-1-2-3-4", true},
 		{"set-answer-0-0-0-0", true},
 		{"set-answer-255-255-255-255", true},
-		{"set-answer-plaintext-hello", true},
-		{"set-answer-plaintext-", true},
+		{"set-answer-txt-hello", true},
+		{"set-answer-txt-", true},
 		{"set-answer-1-2-3", false},
 		{"set-answer-1-2-3-4-5", false},
 		{"set-answer-256-0-0-1", false},

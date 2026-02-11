@@ -277,7 +277,7 @@ func (h *Handler) FinalizeResponse(r *dns.Msg, msg *dns.Msg) {
 			msg.Truncated = true
 		}
 	}
-	// set-answer-* / set-answer-plaintext-* (A and TXT only), then set-cookie-*, set-ede-*, etc. from parsed set-options (stacked)
+	// set-answer-* / set-answer-txt-* (A and TXT only), then set-cookie-*, set-ede-*, etc. from parsed set-options (stacked)
 	if len(r.Question) > 0 {
 		q := r.Question[0]
 		qnameLower := strings.TrimSuffix(strings.ToLower(q.Name), ".")
@@ -296,6 +296,7 @@ func (h *Handler) FinalizeResponse(r *dns.Msg, msg *dns.Msg) {
 			}
 		}
 		if len(setOptions) > 0 {
+			applySetDelay(setOptions)
 			applySetAnswer(msg, setOptions, qnameFQDN, q.Qtype)
 			applySetModifiers(h, r, msg, setOptions)
 		}
@@ -459,6 +460,46 @@ func (h *Handler) Handle(r *dns.Msg, clientAddr net.Addr, transport string) *dns
 			appendTXT(msg, q.Name, 3600, docsURL)
 		}
 		h.ensureSignedOrNodata(msg, r)
+		return msg
+	}
+
+	// txt-test.<zone> — fixed TXT records for display/injection testing (alert, href, bobby-tables).
+	txtTestBase := "txt-test." + h.domain
+	if qname == "alert."+txtTestBase || qname == "href."+txtTestBase || qname == "bobby-tables."+txtTestBase {
+		if q.Qtype == dns.TypeTXT {
+			var payload string
+			switch qname {
+			case "alert." + txtTestBase:
+				payload = `<script>alert(1)</script>`
+			case "href." + txtTestBase:
+				payload = "https://example.com/"
+			case "bobby-tables." + txtTestBase:
+				payload = `' OR '1'='1`
+			default:
+				payload = ""
+			}
+			if payload != "" {
+				appendTXT(msg, q.Name, 0, payload)
+			}
+		}
+		h.ensureSignedOrNodata(msg, r)
+		return msg
+	}
+
+	// ns-test.<zone> — referral testing. unresolvable.ns-test.<zone> returns NS to names we do not serve (no glue), so resolvers get SERVFAIL.
+	nsTestBase := "ns-test." + h.domain
+	if qname == "unresolvable."+nsTestBase {
+		// Referral: Authority with NS records; no Answer; no A/AAAA for the NS targets.
+		ns1 := dns.Fqdn("ns1.unresolvable." + nsTestBase)
+		ns2 := dns.Fqdn("ns2.unresolvable." + nsTestBase)
+		msg.Rcode = dns.RcodeSuccess
+		msg.Ns = []dns.RR{
+			&dns.NS{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: 60}, Ns: ns1},
+			&dns.NS{Hdr: dns.RR_Header{Name: q.Name, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: 60}, Ns: ns2},
+		}
+		if h.signer != nil {
+			_ = h.signer.SignResponse(msg, r)
+		}
 		return msg
 	}
 
@@ -744,6 +785,48 @@ const minSizeN = 128
 const maxSizeN = 4096
 const maxDelayMs = 300000 // 5 minutes
 
+// validSetDelaySpec returns true if rest is a valid delay spec: "N" (0..maxDelayMs) or "X-Y" (0<=X<=Y<=maxDelayMs).
+func validSetDelaySpec(rest string) bool {
+	if rest == "" {
+		return false
+	}
+	if strings.Contains(rest, "-") {
+		parts := strings.SplitN(rest, "-", 2)
+		if len(parts) != 2 {
+			return false
+		}
+		x, err1 := strconv.ParseUint(parts[0], 10, 32)
+		y, err2 := strconv.ParseUint(parts[1], 10, 32)
+		return err1 == nil && err2 == nil && x <= y && y <= maxDelayMs
+	}
+	n, err := strconv.ParseUint(rest, 10, 32)
+	return err == nil && n <= maxDelayMs
+}
+
+// parseSetDelayDuration parses rest ("N" or "X-Y") and returns the delay duration. For "X-Y" returns a random duration between X and Y ms.
+func parseSetDelayDuration(rest string) (time.Duration, bool) {
+	if rest == "" {
+		return 0, false
+	}
+	if strings.Contains(rest, "-") {
+		parts := strings.SplitN(rest, "-", 2)
+		x, err1 := strconv.ParseUint(parts[0], 10, 32)
+		y, err2 := strconv.ParseUint(parts[1], 10, 32)
+		if err1 != nil || err2 != nil || x > y || y > maxDelayMs {
+			return 0, false
+		}
+		if y > x {
+			return time.Duration(x+uint64(rand.Intn(int(y-x+1)))) * time.Millisecond, true
+		}
+		return time.Duration(x) * time.Millisecond, true
+	}
+	n, err := strconv.ParseUint(rest, 10, 32)
+	if err != nil || n > maxDelayMs {
+		return 0, false
+	}
+	return time.Duration(n) * time.Millisecond, true
+}
+
 // handleGadget returns the response for a gadget label; nil means NXDOMAIN.
 func (h *Handler) handleGadget(name string, qtype uint16, label string, req *dns.Msg, clientAddr net.Addr, transport string, msg *dns.Msg) *dns.Msg {
 	host, port := splitAddr(clientAddr)
@@ -902,28 +985,9 @@ func (h *Handler) handleGadget(name string, qtype uint16, label string, req *dns
 	// delay-N or delay-X-Y: delay response by N ms or random between X and Y ms.
 	if strings.HasPrefix(label, "delay-") {
 		rest := label[6:]
-		if rest == "" {
+		d, ok := parseSetDelayDuration(rest)
+		if !ok {
 			return nil
-		}
-		var d time.Duration
-		if strings.Contains(rest, "-") {
-			parts := strings.SplitN(rest, "-", 2)
-			x, err1 := strconv.ParseUint(parts[0], 10, 32)
-			y, err2 := strconv.ParseUint(parts[1], 10, 32)
-			if err1 != nil || err2 != nil || x > y || y > maxDelayMs {
-				return nil
-			}
-			if y > x {
-				d = time.Duration(x+uint64(rand.Intn(int(y-x+1)))) * time.Millisecond
-			} else {
-				d = time.Duration(x) * time.Millisecond
-			}
-		} else {
-			n, err := strconv.ParseUint(rest, 10, 32)
-			if err != nil || n > maxDelayMs {
-				return nil
-			}
-			d = time.Duration(n) * time.Millisecond
 		}
 		time.Sleep(d)
 		if qtype != dns.TypeTXT {
@@ -1164,22 +1228,42 @@ func firstLabelUnderZone(qname, domain string) string {
 }
 
 const (
-	prefixSetCookie          = "set-cookie-"
-	prefixSetEDE             = "set-ede-"
-	prefixSetFlags           = "set-flags-"
-	prefixSetRcode           = "set-rcode-"
-	prefixSetStatus          = "set-status-"
-	prefixSetID              = "set-id-"
-	prefixSetNSID            = "set-nsid-"
-	prefixSetTTL             = "set-ttl-"
-	prefixSetAnswer          = "set-answer-"
-	prefixSetAnswerPlaintext = "set-answer-plaintext-"
-	labelSetNoEDNS           = "set-noedns"
+	prefixSetCookie    = "set-cookie-"
+	prefixSetEDE       = "set-ede-"
+	prefixSetFlags     = "set-flags-"
+	prefixSetRcode     = "set-rcode-"
+	prefixSetStatus    = "set-status-"
+	prefixSetID        = "set-id-"
+	prefixSetNSID      = "set-nsid-"
+	prefixSetTTL       = "set-ttl-"
+	prefixSetDelay     = "set-delay-"
+	prefixSetAnswer    = "set-answer-"
+	prefixSetAnswerTxt = "set-answer-txt-"
+	labelSetNoEDNS     = "set-noedns"
 )
 
-// applySetAnswer replaces msg.Answer with A or TXT records from set-answer-* / set-answer-plaintext-* options.
+// applySetDelay sleeps for the duration from the last valid set-delay-N or set-delay-X-Y in setOptions.
+func applySetDelay(setOptions []string) {
+	var d time.Duration
+	var found bool
+	for _, label := range setOptions {
+		if !strings.HasPrefix(label, prefixSetDelay) {
+			continue
+		}
+		rest := label[len(prefixSetDelay):]
+		if dur, ok := parseSetDelayDuration(rest); ok {
+			d = dur
+			found = true
+		}
+	}
+	if found {
+		time.Sleep(d)
+	}
+}
+
+// applySetAnswer replaces msg.Answer with A or TXT records from set-answer-* / set-answer-txt-* options.
 // Only applies when qtype is A or TXT. Supports only A and TXT record types. Multiple set-answer-* values
-// produce multiple A records; multiple set-answer-plaintext-* values produce one TXT RR with multiple strings.
+// produce multiple A records; multiple set-answer-txt-* values produce one TXT RR with multiple strings.
 func applySetAnswer(msg *dns.Msg, setOptions []string, qname string, qtype uint16) {
 	if qtype != dns.TypeA && qtype != dns.TypeTXT {
 		return
@@ -1187,11 +1271,11 @@ func applySetAnswer(msg *dns.Msg, setOptions []string, qname string, qtype uint1
 	var aIPs []net.IP
 	var txtStrings []string
 	for _, label := range setOptions {
-		if strings.HasPrefix(label, prefixSetAnswerPlaintext) {
+		if strings.HasPrefix(label, prefixSetAnswerTxt) {
 			if qtype != dns.TypeTXT {
 				continue
 			}
-			val := label[len(prefixSetAnswerPlaintext):]
+			val := label[len(prefixSetAnswerTxt):]
 			txtStrings = append(txtStrings, val)
 			continue
 		}
@@ -1228,7 +1312,7 @@ func applySetAnswer(msg *dns.Msg, setOptions []string, qname string, qtype uint1
 
 // parseSetAnswerAValue parses set-answer-<a>-<b>-<c>-<d> and returns net.IPv4(a,b,c,d) or nil.
 func parseSetAnswerAValue(label string) net.IP {
-	if !strings.HasPrefix(label, prefixSetAnswer) || strings.HasPrefix(label, prefixSetAnswerPlaintext) {
+	if !strings.HasPrefix(label, prefixSetAnswer) || strings.HasPrefix(label, prefixSetAnswerTxt) {
 		return nil
 	}
 	rest := label[len(prefixSetAnswer):]

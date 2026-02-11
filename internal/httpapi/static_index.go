@@ -43,120 +43,121 @@ const indexHTML = `<!DOCTYPE html>
 	<script>var GADGET_ZONE = '__ZONE__';</script>
 	<h1>Gadget DNS <span class="version">__VERSION__</span></h1>
 	<p>This server answers DNS queries for gadget names under zone <code>__ZONE__</code>. Each name returns a specific value (your IP, a counter, time, etc.). Copy and paste the <code>dig</code> commands below.</p>
+	<div class="note">Some testing features inspired by <a href="https://whoami.akamai.net" target="_blank" rel="noopener">whoami.akamai.net</a> and <a href="https://nsec3.uk/" target="_blank" rel="noopener">nsec3.uk</a>.</div>
 	<div class="note"><strong>Tip:</strong> Use <code>dig @__ZONE__ …</code> to query this server directly, or use your normal resolver so it forwards to this server. Shift+click Copy to paste commands with <code>@__ZONE__</code> already in each line.</div>
 	<div class="note">Want to run your own instance? Use this project: <a href="https://github.com/davidgroves/gadget-dns-server" target="_blank" rel="noopener">github.com/davidgroves/gadget-dns-server</a>.</div>
 
 	<div class="endpoint">
 		<h2>help <span class="type-badge">TXT</span></h2>
 		<p>TXT record with a link to this docs page (<code>https://www.__ZONE__</code>).</p>
-		<pre>dig +short help.__ZONE__ TXT</pre>
+		<pre>dig help.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>myip / ip <span class="type-badge">A</span> <span class="type-badge">AAAA</span> <span class="type-badge">TXT</span></h2>
 		<p>Your client's IP address. <strong>Recommend using TXT</strong> so you always get the real address. A/AAAA return both record types for DNSSEC; if the packet came via IPv6, A is <code>0.0.0.0</code> (placeholder), and if via IPv4, AAAA is <code>::</code> (placeholder).</p>
-		<pre>dig +short myip.__ZONE__ TXT</pre>
-		<pre>dig +short ip.__ZONE__ TXT</pre>
-		<pre>dig +short myip.__ZONE__ A</pre>
-		<pre>dig +short myip.__ZONE__ AAAA</pre>
+		<pre>dig myip.__ZONE__ TXT</pre>
+		<pre>dig ip.__ZONE__ TXT</pre>
+		<pre>dig myip.__ZONE__ A</pre>
+		<pre>dig myip.__ZONE__ AAAA</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>myport / port <span class="type-badge">TXT</span></h2>
 		<p>Your client's source port (TXT).</p>
-		<pre>dig +short myport.__ZONE__ TXT</pre>
-		<pre>dig +short port.__ZONE__ TXT</pre>
+		<pre>dig myport.__ZONE__ TXT</pre>
+		<pre>dig port.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>myaddr / addr <span class="type-badge">TXT</span></h2>
 		<p>Your client's address and port (TXT, two strings).</p>
-		<pre>dig +short myaddr.__ZONE__ TXT</pre>
-		<pre>dig +short addr.__ZONE__ TXT</pre>
+		<pre>dig myaddr.__ZONE__ TXT</pre>
+		<pre>dig addr.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>connection / myconnection <span class="type-badge">TXT</span></h2>
 		<p>URL-like representation of how the client connected (TXT): <code>doh://&lt;ip4&gt;:&lt;port&gt;</code>, <code>dot://[&lt;ipv6&gt;]:&lt;port&gt;</code>, <code>doq://</code>, <code>udp://</code>, or <code>tcp://</code>.</p>
-		<pre>dig +short connection.__ZONE__ TXT</pre>
-		<pre>dig +short myconnection.__ZONE__ TXT</pre>
+		<pre>dig connection.__ZONE__ TXT</pre>
+		<pre>dig myconnection.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>counter <span class="type-badge">TXT</span></h2>
 		<p>Per-server incrementing counter (TXT).</p>
-		<pre>dig +short counter.__ZONE__ TXT</pre>
+		<pre>dig counter.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>random <span class="type-badge">A</span> <span class="type-badge">AAAA</span> <span class="type-badge">TXT</span></h2>
 		<p>Random value (A, AAAA, or TXT).</p>
-		<pre>dig +short random.__ZONE__ A</pre>
-		<pre>dig +short random.__ZONE__ AAAA</pre>
-		<pre>dig +short random.__ZONE__ TXT</pre>
+		<pre>dig random.__ZONE__ A</pre>
+		<pre>dig random.__ZONE__ AAAA</pre>
+		<pre>dig random.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>protocol <span class="type-badge">TXT</span></h2>
 		<p>Transport used: UDP, TCP, DoT, DoH, or DoQ (TXT).</p>
-		<pre>dig +short protocol.__ZONE__ TXT</pre>
+		<pre>dig protocol.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>timestamp-N <span class="type-badge">TXT</span></h2>
 		<p>Current time in milliseconds (TXT), with TTL = N seconds (0–86400). Example: <code>timestamp-60</code>, <code>timestamp-0</code>.</p>
-		<pre>dig +short timestamp-60.__ZONE__ TXT</pre>
-		<pre>dig +short timestamp-0.__ZONE__ TXT</pre>
+		<pre>dig timestamp-60.__ZONE__ TXT</pre>
+		<pre>dig timestamp-0.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>ttl-N <span class="type-badge">TXT</span></h2>
 		<p>Current Unix time in seconds, with TTL = N (0–86400). Example: <code>ttl-60</code>, <code>ttl-0</code>.</p>
-		<pre>dig +short ttl-60.__ZONE__ TXT</pre>
-		<pre>dig +short ttl-0.__ZONE__ TXT</pre>
+		<pre>dig ttl-60.__ZONE__ TXT</pre>
+		<pre>dig ttl-0.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>edns <span class="type-badge">TXT</span></h2>
 		<p>EDNS options present on the request (TXT).</p>
-		<pre>dig +short edns.__ZONE__ TXT</pre>
+		<pre>dig edns.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>edns-cs / ecs</h2>
 		<p>EDNS Client Subnet from the request (TXT).</p>
-		<pre>dig +short edns-cs.__ZONE__ TXT</pre>
-		<pre>dig +short ecs.__ZONE__ TXT</pre>
+		<pre>dig edns-cs.__ZONE__ TXT</pre>
+		<pre>dig ecs.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>cookie <span class="type-badge">TXT</span></h2>
 		<p>EDNS Cookie (RFC 7873) from the request, echoed as TXT. Use <code>+cookie</code> with dig to send a cookie.</p>
-		<pre>dig +short +cookie cookie.__ZONE__ TXT</pre>
+		<pre>dig +cookie cookie.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="set-options-group">
 	<div class="endpoint">
 		<h2>Stacking set-options <span class="type-badge">TXT</span></h2>
-		<p>You can combine multiple set-options in one query by listing them left to right. All apply: e.g. <code>set-cookie-*</code> (hex value), <code>set-ede-*</code>, <code>set-nsid-*</code>, <code>set-noedns</code>, <code>set-flags-*</code>, <code>set-rcode-*</code>, <code>set-status-*</code>, <code>set-id-*</code>, <code>set-ttl-N</code>, <code>set-answer-*</code>. Example: <code>set-cookie-616263.set-ttl-20.token.diag.__ZONE__</code> sets both the EDNS cookie (hex 616263) and the response TTL to 20, and records to diag under token <code>token</code>. <strong>Exception:</strong> <code>set-noedns</code> always wins—when present, the response will have no OPT record even if other set-options (e.g. <code>set-cookie-*</code>, <code>set-nsid-*</code>) or client NSID would normally add EDNS.</p>
-		<pre>dig +short set-cookie-616263.set-ttl-20.__ZONE__ TXT</pre>
-		<pre>dig +short set-rcode-3.set-id-0x1234.__ZONE__ TXT</pre>
-		<pre>dig +short set-cookie-78797a.set-ede-5-foo.mytoken.diag.__ZONE__ TXT</pre>
+		<p>You can combine multiple set-options in one query by listing them left to right. All apply: e.g. <code>set-cookie-*</code> (hex value), <code>set-ede-*</code>, <code>set-nsid-*</code>, <code>set-noedns</code>, <code>set-flags-*</code>, <code>set-rcode-*</code>, <code>set-status-*</code>, <code>set-id-*</code>, <code>set-ttl-N</code>, <code>set-delay-*</code>, <code>set-answer-*</code>. Example: <code>set-cookie-616263.set-ttl-20.counter.__ZONE__</code> sets the EDNS cookie (hex 616263), the response TTL to 20, and returns the counter gadget. <strong>Exception:</strong> <code>set-noedns</code> always wins—when present, the response will have no OPT record even if other set-options (e.g. <code>set-cookie-*</code>, <code>set-nsid-*</code>) or client NSID would normally add EDNS.</p>
+		<pre>dig set-ttl-60.counter.__ZONE__ TXT</pre>
+		<pre>dig set-rcode-3.set-id-0x1234.__ZONE__ TXT</pre>
+		<pre>dig set-cookie-78797a.set-ede-5-foo.mytoken.diag.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>set-cookie-&lt;string&gt; <span class="type-badge">TXT</span></h2>
 		<p>Force the response to include an EDNS Cookie option with the given value (e.g. return a cookie when the client did not send one, or override the cookie). The string is hex-encoded; for a valid packet the cookie must be <strong>16 bytes</strong> (RFC 7873: 8-byte client + 8-byte server), so use a 16-character string (e.g. <code>set-cookie-1234567890123456</code>). <strong>Setting a short cookie (e.g. <code>set-cookie-abc</code>) intentionally emits a malformed packet</strong>—useful for testing.</p>
-		<pre>dig +short set-cookie-1234567890123456.__ZONE__ TXT</pre>
-		<pre>dig +short +cookie set-cookie-24a5ac1234567890.__ZONE__ TXT</pre>
+		<pre>dig set-cookie-1234567890123456.__ZONE__ TXT</pre>
+		<pre>dig +cookie set-cookie-24a5ac1234567890.__ZONE__ TXT</pre>
 		<p><em>Note:</em> <code>set-cookie-abc</code> is valid as a label but produces a malformed EDNS cookie (3 bytes); use only when testing malformed responses.</p>
 	</div>
 
 	<div class="endpoint">
 		<h2>set-ede-&lt;number&gt;-&lt;string&gt; <span class="type-badge">TXT</span></h2>
 		<p>Force the response to include an Extended DNS Error (RFC 8914) option with the given code and optional text, even when the response is otherwise successful.</p>
-		<pre>dig +short set-ede-5.__ZONE__ TXT</pre>
-		<pre>dig +short set-ede-5-test.__ZONE__ TXT</pre>
+		<pre>dig set-ede-5.__ZONE__ TXT</pre>
+		<pre>dig set-ede-5-test.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
@@ -185,70 +186,109 @@ const indexHTML = `<!DOCTYPE html>
 			<li><code>set-flags-23</code> — Checking Disabled (CD) + RCODE 7 (REFUSED)</li>
 			<li><code>set-flags-0x0200</code> — Truncated (TC), e.g. for testing UDP fallback</li>
 		</ul>
-		<pre>dig +short set-flags-0x8180.__ZONE__ TXT</pre>
-		<pre>dig +short set-flags-0x8580.__ZONE__ TXT</pre>
-		<pre>dig +short set-flags-23.__ZONE__ TXT</pre>
-		<pre>dig +short set-flags-0x0200.__ZONE__ TXT</pre>
+		<pre>dig set-flags-0x8180.__ZONE__ TXT</pre>
+		<pre>dig set-flags-0x8580.__ZONE__ TXT</pre>
+		<pre>dig set-flags-23.__ZONE__ TXT</pre>
+		<pre>dig set-flags-0x0200.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>set-rcode-&lt;value&gt; / set-status-&lt;value&gt; <span class="type-badge">TXT</span></h2>
 		<p>Set the DNS response RCODE (status code). Accepts decimal (0–15 or extended), hex with <code>0x</code> prefix, or RCODE name (e.g. <code>NOERROR</code>, <code>NXDOMAIN</code>, <code>SERVFAIL</code>, <code>REFUSED</code>). <code>set-status-</code> is an alias for <code>set-rcode-</code>.</p>
-		<pre>dig +short set-rcode-3.__ZONE__ TXT</pre>
-		<pre>dig +short set-status-NXDOMAIN.__ZONE__ TXT</pre>
+		<pre>dig set-rcode-3.__ZONE__ TXT</pre>
+		<pre>dig set-status-NXDOMAIN.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>set-id-&lt;value&gt; <span class="type-badge">TXT</span></h2>
 		<p>Set the DNS response transaction ID (16-bit). Accepts decimal (0–65535) or hex with <code>0x</code> prefix.</p>
-		<pre>dig +short set-id-12345.__ZONE__ TXT</pre>
-		<pre>dig +short set-id-0xabcd.__ZONE__ TXT</pre>
+		<pre>dig set-id-12345.__ZONE__ TXT</pre>
+		<pre>dig set-id-0xabcd.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
-		<h2>set-ttl-&lt;N&gt; <span class="type-badge">TXT</span></h2>
-		<p>Set the TTL of all response RRs (Answer and Authority) to N seconds (0–86400). Useful for testing TTL behavior. Can be stacked with other set-options (e.g. <code>set-cookie-616263.set-ttl-20.__ZONE__</code>).</p>
-		<pre>dig +short set-ttl-60.__ZONE__ TXT</pre>
-		<pre>dig +short set-cookie-616263.set-ttl-20.__ZONE__ TXT</pre>
+		<h2>set-ttl-&lt;N&gt;</h2>
+		<p>Set the TTL of all response RRs (Answer and Authority) to N seconds (0–86400). Useful for testing TTL behavior. <strong>set-ttl only modifies the TTL of whatever would be returned</strong>—it does not add records by itself. Stack it with a gadget or set-answer to get an answer with the desired TTL, e.g. <code>set-ttl-60.counter.__ZONE__</code> or <code>set-ttl-20.set-answer-txt-hello.__ZONE__</code>.</p>
+		<pre>dig set-ttl-60.counter.__ZONE__ TXT</pre>
+		<pre>dig set-ttl-20.set-answer-txt-hello.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>set-delay-N / set-delay-X-Y</h2>
+		<p>Delay the response by N milliseconds, or by a random number of milliseconds between X and Y (inclusive). Works like <code>delay-N</code> / <code>delay-X-Y</code>, but as a set-option it applies to <strong>any</strong> query—stack it with a gadget or other set-options to delay whatever would be returned. Example: <code>set-delay-100.counter.__ZONE__</code> returns the counter after 100 ms; <code>set-delay-50-200.myip.__ZONE__</code> returns your IP after a random delay between 50 and 200 ms. Max delay 300000 ms (5 minutes).</p>
+		<pre>dig set-delay-0.counter.__ZONE__ TXT</pre>
+		<pre>dig set-delay-100.myip.__ZONE__ TXT</pre>
+		<pre>dig set-delay-50-200.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>set-answer-&lt;value&gt; (A and TXT only) <span class="type-badge">A</span> <span class="type-badge">TXT</span></h2>
 		<p>Override the response Answer section with the given values. <strong>Only A and TXT record types are supported.</strong> You can stack multiple values; each <code>set-answer-*</code> label adds one value.</p>
 		<p><strong>A records:</strong> <code>set-answer-&lt;a&gt;-&lt;b&gt;-&lt;c&gt;-&lt;d&gt;</code> — four hyphen-separated octets (0–255), e.g. <code>set-answer-1-2-3-4</code> returns A record <code>1.2.3.4</code>. Multiple labels return multiple A records.</p>
-		<p><strong>TXT records:</strong> <code>set-answer-plaintext-&lt;string&gt;</code> — the rest of the label is the TXT string (hyphens allowed). Multiple <code>set-answer-plaintext-*</code> labels produce one TXT RR with multiple strings.</p>
-		<pre>dig +short set-answer-1-2-3-4.set-answer-5-6-7-8.__ZONE__ A</pre>
-		<pre>dig +short set-answer-plaintext-hello.set-answer-plaintext-world.__ZONE__ TXT</pre>
-		<pre>dig +short set-answer-1-2-3-4.set-answer-5-6-7-8.foo.diag.__ZONE__ A</pre>
+		<p><strong>TXT records:</strong> <code>set-answer-txt-&lt;string&gt;</code> — the rest of the label is the TXT string (hyphens allowed). Multiple <code>set-answer-txt-*</code> labels produce one TXT RR with multiple strings.</p>
+		<pre>dig set-answer-1-2-3-4.set-answer-5-6-7-8.__ZONE__ A</pre>
+		<pre>dig set-answer-txt-hello.set-answer-txt-world.__ZONE__ TXT</pre>
+		<pre>dig set-answer-1-2-3-4.set-answer-5-6-7-8.foo.diag.__ZONE__ A</pre>
 	</div>
 	</div>
 
 	<div class="endpoint">
 		<h2>ednspad-N <span class="type-badge">A / AAAA / TXT</span></h2>
 		<p>Response wire size approximately N bytes (128–4096). Uses EDNS padding on all record types.</p>
-		<pre>dig +short ednspad-256.__ZONE__ A</pre>
-		<pre>dig +short ednspad-256.__ZONE__ AAAA</pre>
-		<pre>dig +short ednspad-256.__ZONE__ TXT</pre>
+		<pre>dig ednspad-256.__ZONE__ A</pre>
+		<pre>dig ednspad-256.__ZONE__ AAAA</pre>
+		<pre>dig ednspad-256.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>size-N <span class="type-badge">TXT</span></h2>
 		<p>Response wire size approximately N bytes (128–4096). Returns random TXT content to reach the requested size. TXT only.</p>
-		<pre>dig +short size-256.__ZONE__ TXT</pre>
+		<pre>dig size-256.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>delay-N / delay-X-Y <span class="type-badge">TXT</span></h2>
-		<p>Delay the response by N milliseconds, or by a random number of milliseconds between X and Y (inclusive). Useful for timeout and latency testing. Example: <code>delay-500</code>, <code>delay-100-500</code>.</p>
-		<pre>dig +short delay-500.__ZONE__ TXT</pre>
-		<pre>dig +short delay-100-500.__ZONE__ TXT</pre>
+		<p>Gadget that delays the response by N milliseconds, or by a random number of milliseconds between X and Y (inclusive). Returns a TXT record (e.g. <code>delayed 100ms</code>). Useful for timeout and latency testing. For delaying <strong>any</strong> query (e.g. counter, myip), use the set-option <code>set-delay-N</code> or <code>set-delay-X-Y</code> instead. Example: <code>delay-500</code>, <code>delay-100-500</code>.</p>
+		<pre>dig delay-500.__ZONE__ TXT</pre>
+		<pre>dig delay-100-500.__ZONE__ TXT</pre>
 	</div>
 
 	<div class="endpoint">
 		<h2>qname-min <span class="type-badge">TXT</span></h2>
-		<p>QNAME minimization testing (<a href="https://datatracker.ietf.org/doc/html/rfc7816" target="_blank" rel="noopener">RFC 7816</a>). Query any name under <code>*.qname-min.__ZONE__</code> (e.g. <code>a.b.c.d.zzzzzzz.qname-min.__ZONE__</code>). The TXT response includes the QNAME received and the sequence of qnames the server saw from that resolver (oldest first), with the number of requests—e.g. <code>qname-min.__ZONE__</code>, then <code>zzzzzzz.qname-min.__ZONE__</code>, then <code>d.zzzzzzz.qname-min.__ZONE__</code>. Because all names are in the same zone on this server, the full sequence is visible.</p>
-		<pre>dig +short zzzzzzz.qname-min.__ZONE__ TXT</pre>
-		<pre>dig +short a.b.c.d.zzzzzzz.qname-min.__ZONE__ TXT</pre>
+		<p>QNAME minimization testing (<a href="https://datatracker.ietf.org/doc/html/rfc7816" target="_blank" rel="noopener">RFC 7816</a>). Query any name under <code>*.qname-min.__ZONE__</code> (e.g. <code>a.b.c.d.qname-min.__ZONE__</code>). The TXT response includes the QNAME received and the sequence of qnames the server saw from that resolver (oldest first). Because all names are in the same zone on this server, the full sequence is visible.</p>
+		<p><strong>With QNAME minimization:</strong> For <code>a.b.c.d.__ZONE__</code> you <strong>should</strong> see 2 queries: first <code>qname-min.__ZONE__</code> (or <code>__ZONE__</code>), then <code>a.b.c.d.qname-min.__ZONE__</code>. The resolver discovers there is no delegation and then sends the full name.</p>
+		<p><strong>Other outcomes:</strong></p>
+		<ol style="margin:0.25rem 0 0.5rem 0; padding-left:1.5rem; color:var(--text-muted);">
+			<li><strong>Whole name straight away</strong> — one query for <code>a.b.c.d.qname-min.__ZONE__</code>; indicates no QNAME minimization.</li>
+			<li><strong>Buggy minimization</strong> — queries for <code>qname-min.__ZONE__</code>, then <code>d.qname-min.__ZONE__</code>, then <code>c.d.qname-min.__ZONE__</code>, etc.; the resolver keeps adding one label at a time instead of jumping to the full name after a non-referral.</li>
+		</ol>
+		<p><strong>Why 2 queries is expected:</strong></p>
+		<ul style="margin:0.25rem 0 0.5rem 0; padding-left:1.5rem; color:var(--text-muted);">
+			<li><strong>The Referral (Standard):</strong> If the server for the zone returns a referral (an NS record in the Authority section pointing to the same or another server), the resolver proceeds to the next label—e.g. after <code>qname-min.__ZONE__</code> it might ask for <code>d.qname-min.__ZONE__</code>, then <code>c.d.qname-min.__ZONE__</code>.</li>
+			<li><strong>The &quot;No Data&quot; response:</strong> If the server responds with RCODE 0 (NoError) but no NS records for the subdomain—meaning subdomains are just records in the same zone—the resolver learns there is no further delegation.</li>
+			<li><strong>The Shortcut (<a href="https://datatracker.ietf.org/doc/html/rfc9156" target="_blank" rel="noopener">RFC 9156</a>):</strong> If the resolver receives a response that is not a referral (i.e. an answer or a Name Error), it may stop minimizing and send the full remaining query. So after one minimal query, it can send <code>a.b.c.d.qname-min.__ZONE__</code> directly.</li>
+		</ul>
+		<pre>dig zzzzzzz.qname-min.__ZONE__ TXT</pre>
+		<pre>dig a.b.c.d.qname-min.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>txt-test (display / injection testing) <span class="type-badge">TXT</span></h2>
+		<p>Fixed TXT records under <code>txt-test.__ZONE__</code> for testing how resolvers, tools, or UIs display or escape TXT data. Use to check for XSS, link injection, or SQL-injection-style payload handling.</p>
+		<ul style="margin:0.25rem 0 0.5rem 0; padding-left:1.25rem; color:var(--text-muted);">
+			<li><code>alert.txt-test.__ZONE__</code> — TXT containing <code>&lt;script&gt;alert(1)&lt;/script&gt;</code></li>
+			<li><code>href.txt-test.__ZONE__</code> — TXT containing <code>https://example.com/</code></li>
+			<li><code>bobby-tables.txt-test.__ZONE__</code> — TXT containing <code>' OR '1'='1</code></li>
+		</ul>
+		<pre>dig alert.txt-test.__ZONE__ TXT</pre>
+		<pre>dig href.txt-test.__ZONE__ TXT</pre>
+		<pre>dig bobby-tables.txt-test.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>ns-test (referral testing)</h2>
+		<p><code>unresolvable.ns-test.__ZONE__</code> returns a referral (NS records in Authority) pointing to names this server does not serve (no A/AAAA glue). A recursive resolver that follows the delegation will try to resolve those NS targets and should eventually get NXDOMAIN or timeout, leading to SERVFAIL. Use to test how resolvers handle broken delegations.</p>
+		<pre>dig unresolvable.ns-test.__ZONE__ A</pre>
 	</div>
 
 	<div class="endpoint">
@@ -265,9 +305,9 @@ const indexHTML = `<!DOCTYPE html>
 			<li><code>rrsig-missing.dnssec-failed.__ZONE__</code> — RRset with no RRSIG</li>
 			<li><code>nsec3-instead.dnssec-failed.__ZONE__</code> — NSEC3 in response (zone is NSEC-only)</li>
 		</ul>
-		<pre>dig +short sig-fail.dnssec-failed.__ZONE__ A</pre>
-		<pre>dig +short rrsig-expired.dnssec-failed.__ZONE__ A</pre>
-		<pre>dig +short nsec-missing.dnssec-failed.__ZONE__ A</pre>
+		<pre>dig sig-fail.dnssec-failed.__ZONE__ A</pre>
+		<pre>dig rrsig-expired.dnssec-failed.__ZONE__ A</pre>
+		<pre>dig nsec-missing.dnssec-failed.__ZONE__ A</pre>
 	</div>
 
 	<div class="endpoint">
@@ -279,15 +319,13 @@ const indexHTML = `<!DOCTYPE html>
 	<div class="endpoint">
 		<h2>DoT and DoH with dig</h2>
 		<p>You need a <strong>modern dig</strong> (BIND 9.17+ for <code>+https</code>, BIND 9.19+ for <code>+tls</code>). Query <strong>directly at this server</strong> (<code>@__ZONE__</code>), not via a recursive resolver.</p>
+		<p>Use the <strong>connection</strong> gadget so the TXT response shows the transport in use (<code>dot://…</code>, <code>doh://…</code>, or <code>doq://…</code>).</p>
 		<p><strong>DoT (port 853):</strong></p>
-		<pre>dig +tls @__ZONE__ myip.__ZONE__ A</pre>
-		<pre>dig +short +tls @__ZONE__ counter.__ZONE__ TXT</pre>
+		<pre>dig +tls @__ZONE__ connection.__ZONE__ TXT</pre>
 		<p><strong>DoH (port 443, path /dns-query):</strong></p>
-		<pre>dig +https @__ZONE__ myip.__ZONE__ A</pre>
-		<pre>dig +short +https @__ZONE__ counter.__ZONE__ TXT</pre>
-		<p><strong>DoQ (port 8853):</strong> <code>dig</code> doesn't support DNS over QUIC. Use the <a href="https://github.com/mr-karan/doggo" target="_blank" rel="noopener">doggo</a> client (install: <code>go install github.com/mr-karan/doggo/cmd/doggo@latest</code> or <code>brew install doggo</code>). Query directly at this server:</p>
-		<pre>doggo myip.__ZONE__ @quic://__ZONE__:8853</pre>
-		<pre>doggo TXT counter.__ZONE__ @quic://__ZONE__:8853 --short</pre>
+		<pre>dig +https @__ZONE__ connection.__ZONE__ TXT</pre>
+		<p><strong>DoQ (port 8853):</strong> <code>dig</code> doesn't support DNS over QUIC. Use the <a href="https://github.com/mr-karan/doggo" target="_blank" rel="noopener">doggo</a> client (install: <code>go install github.com/mr-karan/doggo/cmd/doggo@latest</code> or <code>brew install doggo</code>). Query directly at this server; the response will show <code>doq://…</code>.</p>
+		<pre>doggo TXT connection.__ZONE__ @quic://__ZONE__:8853</pre>
 		<p class="note" style="margin-top:0.75rem;margin-bottom:0;"><strong>Recursive–to–authority security:</strong> Today, stub→recursive and recursive→authority are often unencrypted. The <a href="https://datatracker.ietf.org/doc/draft-ietf-deleg/" target="_blank" rel="noopener">DELEG (Extensible Delegation for DNS)</a> internet draft aims to allow delegation records to carry server capabilities (e.g. DoT/DoH), so recursive resolvers can securely reach authoritative servers in the future.</p>
 	</div>
 
@@ -295,11 +333,11 @@ const indexHTML = `<!DOCTYPE html>
 	<div class="endpoint">
 		<h2>token.diag and gadget.token.diag <span class="type-badge">TXT</span></h2>
 		<p>Record a query for a token, then open the dashboard in a browser. Replace <code>mytoken</code> with any label.</p>
-		<pre>dig +short mytoken.diag.__ZONE__ TXT</pre>
+		<pre>dig mytoken.diag.__ZONE__ TXT</pre>
 		<p>Then open <a href="https://diag.__ZONE__/">https://diag.__ZONE__/</a> to enter your token, or go directly to <code>https://diag.__ZONE__/&lt;token&gt;</code> to view recorded queries for that token.</p>
 		<p>You can also run a gadget under diag: <code>&lt;gadget&gt;.&lt;token&gt;.diag.__ZONE__</code> returns the gadget response (e.g. connection URL, myip) and still records the query to the diag dashboard for that token. Example: <code>connection.foo.diag.__ZONE__</code> returns the connection URL and records under token <code>foo</code>.</p>
-		<pre>dig +short connection.foo.diag.__ZONE__ TXT</pre>
-		<pre>dig +short myip.mytoken.diag.__ZONE__ TXT</pre>
+		<pre>dig connection.foo.diag.__ZONE__ TXT</pre>
+		<pre>dig myip.mytoken.diag.__ZONE__ TXT</pre>
 	</div>
 	<script>
 	document.querySelectorAll('.endpoint pre').forEach(function(pre) {

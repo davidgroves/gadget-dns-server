@@ -7,18 +7,18 @@ import (
 
 // ParsedTopLevel is the result of parsing a qname under the zone (top-level, not under .diag).
 type ParsedTopLevel struct {
-	SetOptions []string // leading set-* labels (set-cookie-*, set-ede-*, set-flags-*, set-rcode-*, set-status-*, set-id-*, set-ttl-*, set-answer-*, set-answer-plaintext-*)
+	SetOptions []string // leading set-* labels (set-cookie-*, set-ede-*, set-flags-*, set-rcode-*, set-status-*, set-id-*, set-ttl-*, set-delay-*, set-answer-*, set-answer-txt-*)
 	Gadget     string   // last remaining label, or empty if only set-options
 }
 
 // ParsedDiag is the result of parsing a qname under .token.diag.<zone>.
 type ParsedDiag struct {
-	SetOptions []string // leading set-* labels in the part before token (includes set-answer-*, set-answer-plaintext-*)
+	SetOptions []string // leading set-* labels in the part before token (includes set-answer-*, set-answer-txt-*, set-delay-*, etc.)
 	Gadget     string   // optional gadget label
 	Token      string   // the label immediately before .diag.<zone>
 }
 
-// isSetOption returns true if label is a set-option (set-cookie-*, set-ede-*, set-noedns, set-flags-*, set-rcode-*, set-status-*, set-id-*, set-nsid-*, set-ttl-*, set-answer-*, set-answer-plaintext-*).
+// isSetOption returns true if label is a set-option (set-cookie-*, set-ede-*, set-noedns, set-flags-*, set-rcode-*, set-status-*, set-id-*, set-nsid-*, set-ttl-*, set-delay-*, set-answer-*, set-answer-txt-*).
 func isSetOption(label string) bool {
 	return label == labelSetNoEDNS ||
 		strings.HasPrefix(label, prefixSetCookie) ||
@@ -29,6 +29,7 @@ func isSetOption(label string) bool {
 		strings.HasPrefix(label, prefixSetID) ||
 		strings.HasPrefix(label, prefixSetNSID) ||
 		strings.HasPrefix(label, prefixSetTTL) ||
+		strings.HasPrefix(label, prefixSetDelay) ||
 		strings.HasPrefix(label, prefixSetAnswer)
 }
 
@@ -68,8 +69,11 @@ func isValidSetOption(label string) bool {
 		n, err := strconv.ParseUint(nStr, 10, 32)
 		return err == nil && n <= maxTTL
 	}
-	if strings.HasPrefix(label, prefixSetAnswerPlaintext) {
-		return true // any suffix is valid plaintext
+	if strings.HasPrefix(label, prefixSetDelay) {
+		return validSetDelaySpec(label[len(prefixSetDelay):])
+	}
+	if strings.HasPrefix(label, prefixSetAnswerTxt) {
+		return true // any suffix is valid TXT
 	}
 	if strings.HasPrefix(label, prefixSetAnswer) {
 		return isValidSetAnswerALabel(label)
@@ -79,7 +83,7 @@ func isValidSetOption(label string) bool {
 
 // isValidSetAnswerALabel returns true if label is set-answer-<a>-<b>-<c>-<d> with each octet 0-255.
 func isValidSetAnswerALabel(label string) bool {
-	if !strings.HasPrefix(label, prefixSetAnswer) || strings.HasPrefix(label, prefixSetAnswerPlaintext) {
+	if !strings.HasPrefix(label, prefixSetAnswer) || strings.HasPrefix(label, prefixSetAnswerTxt) {
 		return false
 	}
 	rest := label[len(prefixSetAnswer):]
