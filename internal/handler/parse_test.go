@@ -21,6 +21,9 @@ func TestIsSetOption(t *testing.T) {
 		{"set-nsid-foo", true},
 		{"set-nsid-my-server", true},
 		{"set-noedns", true},
+		{"set-nocompress", true},
+		{"setednspad-256", true},
+		{"setednspad-128", true},
 		{"set-ttl-20", true},
 		{"set-ttl-0", true},
 		{"set-delay-0", true},
@@ -132,6 +135,26 @@ func TestIsValidSetOption_setDelay(t *testing.T) {
 		{"set-delay-50-10", false},
 		{"set-delay", false},
 		{"set-delay-", false},
+	}
+	for _, tt := range tests {
+		got := isValidSetOption(tt.label)
+		if got != tt.want {
+			t.Errorf("isValidSetOption(%q)=%v want %v", tt.label, got, tt.want)
+		}
+	}
+}
+
+func TestIsValidSetOption_setEdnsPad(t *testing.T) {
+	tests := []struct {
+		label string
+		want  bool
+	}{
+		{"setednspad-128", true},
+		{"setednspad-256", true},
+		{"setednspad-4096", true},
+		{"setednspad-99", false},
+		{"setednspad-4097", false},
+		{"setednspad-127", false},
 	}
 	for _, tt := range tests {
 		got := isValidSetOption(tt.label)

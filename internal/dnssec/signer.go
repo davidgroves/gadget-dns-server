@@ -216,6 +216,11 @@ func (s *Signer) SignResponse(msg *dns.Msg, req *dns.Msg) error {
 	return nil
 }
 
+// fqdnForCompare returns a canonical FQDN for case-insensitive name matching (resolver 0x20 qname case).
+func fqdnForCompare(name string) string {
+	return dns.Fqdn(strings.ToLower(strings.TrimSuffix(name, ".")))
+}
+
 // signSection groups RRs by (name, type), signs each RRset, returns new slice with RRs + RRSIGs.
 // expired* and future* are used for rrsig-expired / rrsig-future fail-case labels.
 func (s *Signer) signSection(rrs []dns.RR, inception, expiration, expiredInception, expiredExpiration, futureInception, futureExpiration int64, nsSection bool) []dns.RR {
@@ -231,12 +236,13 @@ func (s *Signer) signSection(rrs []dns.RR, inception, expiration, expiredIncepti
 			owner = rrset[0].Header().Name
 		}
 		inc, exp := inception, expiration
-		if owner == rrsigExpiredFQDN {
+		ownerCmp := fqdnForCompare(owner)
+		if ownerCmp == rrsigExpiredFQDN {
 			inc, exp = expiredInception, expiredExpiration
-		} else if owner == rrsigFutureFQDN {
+		} else if ownerCmp == rrsigFutureFQDN {
 			inc, exp = futureInception, futureExpiration
 		}
-		if owner == rrsigMissingFQDN {
+		if ownerCmp == rrsigMissingFQDN {
 			// Do not append any RRSIG for this RRset
 			continue
 		}
@@ -276,7 +282,7 @@ func (s *Signer) signRRSetWithKey(rrset []dns.RR, kp *KeyPair, inception, expira
 	}
 	// rrsig-wrong-rrset.<zone>: sign a different RRset so digest verification fails
 	rrsigWrongRRsetFQDN := s.dnssecFailedFQDN("rrsig-wrong-rrset")
-	if h.Name == rrsigWrongRRsetFQDN {
+	if fqdnForCompare(h.Name) == rrsigWrongRRsetFQDN {
 		wrongRRset := []dns.RR{&dns.SOA{
 			Hdr:     dns.RR_Header{Name: s.zoneFQDN, Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 3600},
 			Ns:      ".",
@@ -294,7 +300,7 @@ func (s *Signer) signRRSetWithKey(rrset []dns.RR, kp *KeyPair, inception, expira
 	// sig-fail.dnssec-failed.<zone>: deliberately invalid RRSIG for the gadget RRset (A/TXT) so validators get SERVFAIL.
 	// Do not corrupt RRSIGs for NSEC at sig-fail (used in NXDOMAIN when qname sorts after sig-fail), or Pack() fails.
 	sigFailFQDN := s.dnssecFailedFQDN("sig-fail")
-	if h.Name == sigFailFQDN && h.Rrtype != dns.TypeNSEC {
+	if fqdnForCompare(h.Name) == sigFailFQDN && h.Rrtype != dns.TypeNSEC {
 		// Corrupt the signature so validation fails.
 		sig := []byte(rrsig.Signature)
 		for i := range sig {
@@ -304,7 +310,7 @@ func (s *Signer) signRRSetWithKey(rrset []dns.RR, kp *KeyPair, inception, expira
 	}
 	// rrsig-wrong-alg.dnssec-failed.<zone>: RRSIG claims wrong algorithm so validators fail to match DNSKEY
 	rrsigWrongAlgFQDN := s.dnssecFailedFQDN("rrsig-wrong-alg")
-	if h.Name == rrsigWrongAlgFQDN {
+	if fqdnForCompare(h.Name) == rrsigWrongAlgFQDN {
 		// Use a different algorithm number (e.g. 8 RSASHA256 if zone is 13/15)
 		if kp.DNSKEY.Algorithm == dns.ECDSAP256SHA256 || kp.DNSKEY.Algorithm == dns.ED25519 {
 			rrsig.Algorithm = dns.RSASHA256
@@ -322,7 +328,7 @@ func groupRRSet(rrs []dns.RR) [][]dns.RR {
 		if rr.Header().Rrtype == dns.TypeRRSIG {
 			continue
 		}
-		key := rr.Header().Name + " " + dns.TypeToString[rr.Header().Rrtype]
+		key := fqdnForCompare(rr.Header().Name) + " " + dns.TypeToString[rr.Header().Rrtype]
 		if i, ok := seen[key]; ok {
 			groups[i] = append(groups[i], rr)
 		} else {
@@ -337,7 +343,7 @@ func (s *Signer) nsecForName(name string, qtype uint16, isNoData bool) []dns.RR 
 	name = dns.Fqdn(strings.ToLower(name))
 	prev, next := s.prevNext(name)
 	// Name exists: NODATA needs NSEC(owner=name, NextDomain=next, TypeBitMap=types at name \ {qtype}).
-	// For NODATA we must use this path even when name is not in existingNames (e.g. delay-10, ttl-N, size-N, ednspad-N).
+	// For NODATA we must use this path even when name is not in existingNames (e.g. delay-10, ttl-N, size-N).
 	if prev == "" && next == "" || isNoData {
 		var nextName string
 		if prev == "" && next == "" {
@@ -498,7 +504,7 @@ func (s *Signer) typesAtName(name string) []uint16 {
 		return []uint16{dns.TypeA, dns.TypeAAAA, dns.TypeTXT}
 	}
 	label := strings.SplitN(nameTrim, ".", 2)[0]
-	// Dynamic gadget names (only TXT): delay-N, ttl-N, timestamp-N, size-N. ednspad-N supports A, AAAA, TXT (falls through to default).
+	// Dynamic gadget names (only TXT): delay-N, ttl-N, timestamp-N, size-N.
 	if strings.HasPrefix(label, "delay-") || strings.HasPrefix(label, "ttl-") || strings.HasPrefix(label, "timestamp-") || strings.HasPrefix(label, "size-") {
 		return []uint16{dns.TypeTXT}
 	}

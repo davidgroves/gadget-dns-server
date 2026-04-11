@@ -3,6 +3,7 @@ package dnssec
 import (
 	"net"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -395,6 +396,32 @@ func TestSigner_SignResponse_rrsig_expired(t *testing.T) {
 	t.Error("no RRSIG in answer for rrsig-expired")
 }
 
+// Mixed-case qname (resolver 0x20); owner names echo wire case — signer must still apply fail-case RRSIG windows.
+func TestSigner_SignResponse_rrsig_expired_mixedCaseQname(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("RrSiG-ExPiReD.DnSsEc-FaIlEd.ExAmPlE.CoM.", dns.TypeA)
+	req.SetEdns0(4096, true)
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	now := uint32(time.Now().UTC().Unix())
+	for _, rr := range msg.Answer {
+		if rrsig, ok := rr.(*dns.RRSIG); ok {
+			if rrsig.Expiration >= now || rrsig.Inception >= now {
+				t.Errorf("rrsig-expired (mixed-case qname): RRSIG should be in the past; Inception=%d Expiration=%d now=%d", rrsig.Inception, rrsig.Expiration, now)
+			}
+			return
+		}
+	}
+	t.Error("no RRSIG in answer for rrsig-expired (mixed-case qname)")
+}
+
 func TestSigner_SignResponse_rrsig_future(t *testing.T) {
 	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
 	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
@@ -418,6 +445,31 @@ func TestSigner_SignResponse_rrsig_future(t *testing.T) {
 		}
 	}
 	t.Error("no RRSIG in answer for rrsig-future")
+}
+
+func TestSigner_SignResponse_rrsig_future_mixedCaseQname(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("RrSiG-FuTuRe.DnSsEc-FaIlEd.ExAmPlE.CoM.", dns.TypeA)
+	req.SetEdns0(4096, true)
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	now := uint32(time.Now().UTC().Unix())
+	for _, rr := range msg.Answer {
+		if rrsig, ok := rr.(*dns.RRSIG); ok {
+			if rrsig.Inception <= now || rrsig.Expiration <= now {
+				t.Errorf("rrsig-future (mixed-case qname): RRSIG should be in the future; Inception=%d Expiration=%d now=%d", rrsig.Inception, rrsig.Expiration, now)
+			}
+			return
+		}
+	}
+	t.Error("no RRSIG in answer for rrsig-future (mixed-case qname)")
 }
 
 func TestSigner_SignResponse_nsec_missing(t *testing.T) {
@@ -490,6 +542,30 @@ func TestSigner_SignResponse_rrsig_wrong_alg(t *testing.T) {
 	t.Error("no RRSIG in answer for rrsig-wrong-alg")
 }
 
+func TestSigner_SignResponse_rrsig_wrong_alg_mixedCaseQname(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("RrSiG-WrOnG-AlG.DnSsEc-FaIlEd.ExAmPlE.CoM.", dns.TypeA)
+	req.SetEdns0(4096, true)
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	for _, rr := range msg.Answer {
+		if rrsig, ok := rr.(*dns.RRSIG); ok {
+			if rrsig.Algorithm == dns.ECDSAP256SHA256 {
+				t.Errorf("rrsig-wrong-alg (mixed-case qname): RRSIG Algorithm should differ from zone key (13); got %d", rrsig.Algorithm)
+			}
+			return
+		}
+	}
+	t.Error("no RRSIG in answer for rrsig-wrong-alg (mixed-case qname)")
+}
+
 func TestSigner_SignResponse_rrsig_missing(t *testing.T) {
 	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
 	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
@@ -515,6 +591,204 @@ func TestSigner_SignResponse_rrsig_missing(t *testing.T) {
 		}
 	}
 	t.Error("no A record for rrsig-missing in answer")
+}
+
+func TestSigner_SignResponse_rrsig_missing_mixedCaseQname(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("RrSiG-MiSsInG.DnSsEc-FaIlEd.ExAmPlE.CoM.", dns.TypeA)
+	req.SetEdns0(4096, true)
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	wantOwner := fqdnForCompare(req.Question[0].Name)
+	for _, rr := range msg.Answer {
+		if rr.Header().Rrtype == dns.TypeA && fqdnForCompare(rr.Header().Name) == wantOwner {
+			for _, r := range msg.Answer {
+				if sig, ok := r.(*dns.RRSIG); ok && sig.TypeCovered == dns.TypeA && fqdnForCompare(sig.Hdr.Name) == wantOwner {
+					t.Error("rrsig-missing (mixed-case qname): should have no RRSIG covering the A RRset for this owner")
+					return
+				}
+			}
+			return
+		}
+	}
+	t.Error("no A record for rrsig-missing in answer (mixed-case qname)")
+}
+
+func TestFqdnForCompare(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"ExAmPlE.CoM", "example.com."},
+		{"eXaMpLe.CoM.", "example.com."},
+		{"foo.BAR.example.com", "foo.bar.example.com."},
+		{"rrsig-expired.dnssec-failed.example.com", "rrsig-expired.dnssec-failed.example.com."},
+	}
+	for _, tc := range tests {
+		if got := fqdnForCompare(tc.in); got != tc.want {
+			t.Errorf("fqdnForCompare(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func findAAndRRSIG(t *testing.T, msg *dns.Msg) (*dns.A, *dns.RRSIG) {
+	t.Helper()
+	var a *dns.A
+	for _, rr := range msg.Answer {
+		if x, ok := rr.(*dns.A); ok {
+			a = x
+			break
+		}
+	}
+	if a == nil {
+		t.Fatalf("missing A in answer (have %d RRs)", len(msg.Answer))
+	}
+	owner := fqdnForCompare(a.Hdr.Name)
+	var sig *dns.RRSIG
+	for _, rr := range msg.Answer {
+		x, ok := rr.(*dns.RRSIG)
+		if !ok || x.TypeCovered != dns.TypeA {
+			continue
+		}
+		if fqdnForCompare(x.Hdr.Name) != owner {
+			continue
+		}
+		sig = x
+		break
+	}
+	if sig == nil {
+		t.Fatalf("missing RRSIG(TypeA) for owner %q in answer (have %d RRs)", a.Hdr.Name, len(msg.Answer))
+	}
+	return a, sig
+}
+
+// rrsig-wrong-rrset signs a minimal apex SOA RRset (see signRRSetWithKey); miekg/dns Sign() overwrites
+// RRSIG TypeCovered and owner from that rrset, so Answer holds A at the gadget plus an RRSIG over SOA at apex.
+// Mixed-case qname must still take that branch (fqdnForCompare), not emit a normal TypeA RRSIG.
+func assertRRSIGWrongRRsetGadget(t *testing.T, msg *dns.Msg, zsk *KeyPair) {
+	t.Helper()
+	var a *dns.A
+	var rrsig *dns.RRSIG
+	for _, rr := range msg.Answer {
+		switch x := rr.(type) {
+		case *dns.A:
+			a = x
+		case *dns.RRSIG:
+			rrsig = x
+		}
+	}
+	if a == nil || rrsig == nil {
+		t.Fatalf("want A + RRSIG in answer, got A=%v RRSIG=%v (n=%d)", a != nil, rrsig != nil, len(msg.Answer))
+	}
+	if rrsig.TypeCovered != dns.TypeSOA {
+		t.Fatalf("rrsig-wrong-rrset: RRSIG TypeCovered=%s want SOA (else gadget was signed as normal A RRset)",
+			dns.TypeToString[rrsig.TypeCovered])
+	}
+	if fqdnForCompare(rrsig.Hdr.Name) != "example.com." {
+		t.Fatalf("rrsig-wrong-rrset: RRSIG owner=%q want apex example.com.", rrsig.Hdr.Name)
+	}
+	soaSigned := &dns.SOA{
+		Hdr:     dns.RR_Header{Name: "example.com.", Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 3600},
+		Ns:      ".",
+		Mbox:    ".",
+		Serial:  1,
+		Refresh: 3600,
+		Retry:   600,
+		Expire:  86400,
+		Minttl:  300,
+	}
+	if err := rrsig.Verify(zsk.DNSKEY, []dns.RR{soaSigned}); err != nil {
+		t.Fatalf("RRSIG should verify over the SOA RRset it was signed with: %v", err)
+	}
+	if fqdnForCompare(a.Hdr.Name) == fqdnForCompare(rrsig.Hdr.Name) {
+		t.Fatal("gadget A owner must differ from RRSIG owner (apex SOA signature)")
+	}
+}
+
+// DNS 0x20 / mixed-case qname must still trigger rrsig-wrong-rrset (signature over wrong RRset).
+func TestSigner_SignResponse_rrsig_wrong_rrset_mixedCaseQname(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("RrSiG-WrOnG-RrSeT.DnSsEc-FaIlEd.ExAmPlE.CoM.", dns.TypeA)
+	req.SetEdns0(4096, true)
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	assertRRSIGWrongRRsetGadget(t, msg, zsk)
+}
+
+// Baseline: all-lowercase qname must hit the same rrsig-wrong-rrset signing branch.
+func TestSigner_SignResponse_rrsig_wrong_rrset(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("rrsig-wrong-rrset.dnssec-failed.example.com.", dns.TypeA)
+	req.SetEdns0(4096, true)
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	assertRRSIGWrongRRsetGadget(t, msg, zsk)
+}
+
+// sig-fail gadget must still get a corrupted RRSIG when the qname uses 0x20 case randomization.
+func TestSigner_SignResponse_sig_fail_mixedCaseQname_VerifyFails(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("SiG-FaIl.DnSsEc-FaIlEd.ExAmPlE.CoM.", dns.TypeA)
+	req.SetEdns0(4096, true)
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	a, rrsig := findAAndRRSIG(t, msg)
+	if err := rrsig.Verify(zsk.DNSKEY, []dns.RR{a}); err == nil {
+		t.Fatal("sig-fail (mixed-case qname): RRSIG.Verify should fail (corrupted signature)")
+	}
+}
+
+// Ordinary gadget + mixed-case qname: RRSIG must still validate (guards against over-broad lowercasing).
+func TestSigner_SignResponse_myip_mixedCaseQname_RRSIGVerifies(t *testing.T) {
+	ksk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, true)
+	zsk, _ := GenerateKeyPair("example.com.", dns.ECDSAP256SHA256, false)
+	signer := NewSigner("example.com", ksk, zsk)
+	h := handler.New(handler.Config{Domain: "example.com", Signer: signer})
+	req := new(dns.Msg)
+	req.SetQuestion("MyIp.ExAmPlE.CoM.", dns.TypeA)
+	req.SetEdns0(4096, true)
+	addr, _ := net.ResolveUDPAddr("udp", "192.0.2.9:5353")
+	msg := h.Handle(req, addr, "")
+	if msg.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode=%d", msg.Rcode)
+	}
+	a, rrsig := findAAndRRSIG(t, msg)
+	if !a.A.Equal(net.ParseIP("192.0.2.9")) {
+		t.Fatalf("unexpected A %s", a.A)
+	}
+	if err := rrsig.Verify(zsk.DNSKEY, []dns.RR{a}); err != nil {
+		t.Fatalf("myip (mixed-case qname): RRSIG.Verify: %v", err)
+	}
+	if !strings.EqualFold(strings.TrimSuffix(rrsig.Hdr.Name, "."), strings.TrimSuffix(req.Question[0].Name, ".")) {
+		t.Errorf("RRSIG owner should echo qname case: rrsig=%q question=%q", rrsig.Hdr.Name, req.Question[0].Name)
+	}
 }
 
 func TestSigner_SignResponse_nsec3_instead(t *testing.T) {

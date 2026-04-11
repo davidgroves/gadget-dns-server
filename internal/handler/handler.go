@@ -299,6 +299,7 @@ func (h *Handler) FinalizeResponse(r *dns.Msg, msg *dns.Msg) {
 			applySetDelay(setOptions)
 			applySetAnswer(msg, setOptions, qnameFQDN, q.Qtype)
 			applySetModifiers(h, r, msg, setOptions)
+			applySetEdnsPad(msg, setOptions)
 		}
 		// RFC 5001: if client sent NSID and response has no NSID yet, add default (same as hostname.bind)
 		if reqOpt != nil && msg.Rcode != dns.RcodeBadVers {
@@ -321,6 +322,10 @@ func (h *Handler) FinalizeResponse(r *dns.Msg, msg *dns.Msg) {
 			msg.Extra = newExtra
 			// RFC 1034/1035: without EDNS, limit response to 512 bytes; set TC and truncate if required
 			truncateToUDPSize(msg, 512)
+		}
+		// set-nocompress: send response without RFC 1035 label compression (same content, larger wire size)
+		if hasSetNoCompress(setOptions) {
+			msg.Compress = false
 		}
 	}
 }
@@ -894,51 +899,6 @@ func (h *Handler) handleGadget(name string, qtype uint16, label string, req *dns
 		return msg
 	}
 
-	// ednspad-N: response wire size approximately N bytes (128 <= N <= 4096), EDNS padding on all record types.
-	if strings.HasPrefix(label, "ednspad-") {
-		nStr := label[len("ednspad-"):]
-		n, err := strconv.ParseUint(nStr, 10, 32)
-		if err != nil || n < minSizeN || n > maxSizeN {
-			return nil
-		}
-		switch qtype {
-		case dns.TypeA:
-			msg.Answer = append(msg.Answer, &dns.A{
-				Hdr: dns.RR_Header{Name: name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: ttl},
-				A:   net.IPv4zero,
-			})
-		case dns.TypeAAAA:
-			msg.Answer = append(msg.Answer, &dns.AAAA{
-				Hdr:  dns.RR_Header{Name: name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: ttl},
-				AAAA: net.IPv6zero,
-			})
-		case dns.TypeTXT:
-			appendTXT(msg, name, ttl, "ednspad-"+nStr)
-		default:
-			h.setNodataSOA(msg)
-		}
-		if msg.IsEdns0() == nil {
-			msg.SetEdns0(4096, false)
-		}
-		packed, err := msg.Pack()
-		if err != nil {
-			return msg
-		}
-		baseSize := len(packed)
-		if baseSize >= int(n) {
-			return msg
-		}
-		paddingLen := int(n) - baseSize - 4
-		if paddingLen <= 0 {
-			return msg
-		}
-		opt := msg.IsEdns0()
-		if opt != nil {
-			opt.Option = append(opt.Option, &dns.EDNS0_PADDING{Padding: make([]byte, paddingLen)})
-		}
-		return msg
-	}
-
 	// size-N: response wire size approximately N bytes (128 <= N <= 4096), TXT only. Random TXT content to reach size.
 	if strings.HasPrefix(label, "size-") {
 		nStr := label[5:]
@@ -1239,8 +1199,48 @@ const (
 	prefixSetDelay     = "set-delay-"
 	prefixSetAnswer    = "set-answer-"
 	prefixSetAnswerTxt = "set-answer-txt-"
+	prefixSetEdnsPad   = "setednspad-"
 	labelSetNoEDNS     = "set-noedns"
+	labelSetNoCompress = "set-nocompress"
 )
+
+// applySetEdnsPad adds EDNS padding so the response wire size is at least N bytes (from last setednspad-N in setOptions, 128–4096).
+func applySetEdnsPad(msg *dns.Msg, setOptions []string) {
+	var target uint32
+	for _, label := range setOptions {
+		if !strings.HasPrefix(label, prefixSetEdnsPad) {
+			continue
+		}
+		nStr := label[len(prefixSetEdnsPad):]
+		n, err := strconv.ParseUint(nStr, 10, 32)
+		if err != nil || n < minSizeN || n > maxSizeN {
+			continue
+		}
+		target = uint32(n)
+	}
+	if target == 0 {
+		return
+	}
+	if msg.IsEdns0() == nil {
+		msg.SetEdns0(4096, false)
+	}
+	packed, err := msg.Pack()
+	if err != nil {
+		return
+	}
+	if uint32(len(packed)) >= target {
+		return
+	}
+	// EDNS0_PADDING: option code 12, 2-byte length + payload; 4 bytes option header in wire
+	need := int(target) - len(packed) - 4
+	if need <= 0 {
+		return
+	}
+	opt := msg.IsEdns0()
+	if opt != nil {
+		opt.Option = append(opt.Option, &dns.EDNS0_PADDING{Padding: make([]byte, need)})
+	}
+}
 
 // applySetDelay sleeps for the duration from the last valid set-delay-N or set-delay-X-Y in setOptions.
 func applySetDelay(setOptions []string) {
@@ -1631,6 +1631,16 @@ func responseHasNSID(opt *dns.OPT) bool {
 func hasSetNoEDNS(setOptions []string) bool {
 	for _, label := range setOptions {
 		if label == labelSetNoEDNS {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSetNoCompress returns true if setOptions contains set-nocompress (send response without RFC 1035 label compression).
+func hasSetNoCompress(setOptions []string) bool {
+	for _, label := range setOptions {
+		if label == labelSetNoCompress {
 			return true
 		}
 	}

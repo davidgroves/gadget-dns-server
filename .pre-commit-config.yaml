@@ -22,6 +22,9 @@ repos:
       - id: staticcheck
         name: staticcheck
         language: system
-        entry: staticcheck ./...
+        # Use go run so staticcheck is built with the same toolchain as this module (go.mod
+        # toolchain). A standalone staticcheck binary built with an older Go can fail against
+        # a newer GOROOT (e.g. "file requires newer Go version go1.26 (application built with go1.24)").
+        entry: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
         pass_filenames: false
         always_run: true

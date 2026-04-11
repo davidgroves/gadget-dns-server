@@ -39,6 +39,65 @@ func TestHandler_Handle_ApexSOA(t *testing.T) {
 	}
 }
 
+func TestHandler_Handle_QnameCaseFolding_SameGadget(t *testing.T) {
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:5353")
+	lower := "protocol.example.com."
+	mixed := "PrOtOcOl.ExAmPlE.CoM."
+	reqL := new(dns.Msg)
+	reqL.SetQuestion(lower, dns.TypeTXT)
+	reqM := new(dns.Msg)
+	reqM.SetQuestion(mixed, dns.TypeTXT)
+	msgL := h.Handle(reqL, addr, "")
+	msgM := h.Handle(reqM, addr, "")
+	if msgL.Rcode != dns.RcodeSuccess || msgM.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode lower=%d mixed=%d", msgL.Rcode, msgM.Rcode)
+	}
+	txtL := txtAnswerStrings(msgL)
+	txtM := txtAnswerStrings(msgM)
+	if len(txtL) == 0 || len(txtM) == 0 {
+		t.Fatalf("empty TXT: lower=%v mixed=%v", txtL, txtM)
+	}
+	if txtL[0] != txtM[0] {
+		t.Errorf("same gadget should return same first TXT line; lower=%q mixed=%q", txtL[0], txtM[0])
+	}
+}
+
+func TestHandler_Handle_QnameCaseFolding_MyIP_TXT(t *testing.T) {
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "198.51.100.2:5353")
+	lower := "myip.example.com."
+	mixed := "MyIp.ExAmPlE.CoM."
+	reqL := new(dns.Msg)
+	reqL.SetQuestion(lower, dns.TypeTXT)
+	reqM := new(dns.Msg)
+	reqM.SetQuestion(mixed, dns.TypeTXT)
+	msgL := h.Handle(reqL, addr, "")
+	msgM := h.Handle(reqM, addr, "")
+	if msgL.Rcode != dns.RcodeSuccess || msgM.Rcode != dns.RcodeSuccess {
+		t.Fatalf("rcode lower=%d mixed=%d", msgL.Rcode, msgM.Rcode)
+	}
+	txtL := txtAnswerStrings(msgL)
+	txtM := txtAnswerStrings(msgM)
+	want := "198.51.100.2"
+	if len(txtL) == 0 || len(txtM) == 0 {
+		t.Fatalf("empty TXT: lower=%v mixed=%v", txtL, txtM)
+	}
+	if txtL[0] != want || txtM[0] != want {
+		t.Fatalf("myip TXT: lower=%q mixed=%q want %q", txtL[0], txtM[0], want)
+	}
+}
+
+func txtAnswerStrings(msg *dns.Msg) []string {
+	var out []string
+	for _, rr := range msg.Answer {
+		if txt, ok := rr.(*dns.TXT); ok {
+			out = append(out, txt.Txt...)
+		}
+	}
+	return out
+}
+
 func TestHandler_Handle_MyIP_A(t *testing.T) {
 	h := testHandler("example.com")
 	req := new(dns.Msg)
@@ -333,55 +392,52 @@ func TestHandler_Handle_EdnsPadN(t *testing.T) {
 	h := testHandler("example.com")
 	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
 
-	// TXT: response has EDNS padding to >= 256 bytes
+	// setednspad-256.counter: counter response + EDNS padding to >= 256 bytes
 	req := new(dns.Msg)
-	req.SetQuestion("ednspad-256.example.com.", dns.TypeTXT)
+	req.SetQuestion("setednspad-256.counter.example.com.", dns.TypeTXT)
 	req.SetEdns0(4096, false)
 	msg := h.Handle(req, addr, "")
+	h.FinalizeResponse(req, msg)
 	if msg.Rcode != dns.RcodeSuccess || len(msg.Answer) != 1 {
-		t.Fatalf("TXT: rcode=%d len(Answer)=%d", msg.Rcode, len(msg.Answer))
+		t.Fatalf("setednspad-256.counter TXT: rcode=%d len(Answer)=%d", msg.Rcode, len(msg.Answer))
 	}
 	packed, err := msg.Pack()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(packed) < 256 {
-		t.Errorf("ednspad-256 TXT response wire size=%d want >= 256", len(packed))
+		t.Errorf("setednspad-256 response wire size=%d want >= 256", len(packed))
 	}
 
-	// A: response has A record and EDNS padding
-	req.SetQuestion("ednspad-256.example.com.", dns.TypeA)
+	// setednspad-256.myip: A response + padding
+	req.SetQuestion("setednspad-256.myip.example.com.", dns.TypeA)
 	msgA := h.Handle(req, addr, "")
-	if msgA.Rcode != dns.RcodeSuccess || len(msgA.Answer) != 1 {
-		t.Fatalf("A: rcode=%d len(Answer)=%d", msgA.Rcode, len(msgA.Answer))
-	}
-	if _, ok := msgA.Answer[0].(*dns.A); !ok {
-		t.Fatalf("A: Answer[0] not *dns.A")
+	h.FinalizeResponse(req, msgA)
+	if msgA.Rcode != dns.RcodeSuccess || len(msgA.Answer) < 1 {
+		t.Fatalf("setednspad-256.myip A: rcode=%d len(Answer)=%d", msgA.Rcode, len(msgA.Answer))
 	}
 	packedA, _ := msgA.Pack()
 	if len(packedA) < 256 {
-		t.Errorf("ednspad-256 A response wire size=%d want >= 256", len(packedA))
+		t.Errorf("setednspad-256.myip A response wire size=%d want >= 256", len(packedA))
 	}
 
-	// AAAA: response has AAAA record and EDNS padding
-	req.SetQuestion("ednspad-256.example.com.", dns.TypeAAAA)
+	// setednspad-256.myip AAAA
+	req.SetQuestion("setednspad-256.myip.example.com.", dns.TypeAAAA)
 	msgAAAA := h.Handle(req, addr, "")
-	if msgAAAA.Rcode != dns.RcodeSuccess || len(msgAAAA.Answer) != 1 {
-		t.Fatalf("AAAA: rcode=%d len(Answer)=%d", msgAAAA.Rcode, len(msgAAAA.Answer))
-	}
-	if _, ok := msgAAAA.Answer[0].(*dns.AAAA); !ok {
-		t.Fatalf("AAAA: Answer[0] not *dns.AAAA")
+	h.FinalizeResponse(req, msgAAAA)
+	if msgAAAA.Rcode != dns.RcodeSuccess || len(msgAAAA.Answer) < 1 {
+		t.Fatalf("setednspad-256.myip AAAA: rcode=%d len(Answer)=%d", msgAAAA.Rcode, len(msgAAAA.Answer))
 	}
 	packedAAAA, _ := msgAAAA.Pack()
 	if len(packedAAAA) < 256 {
-		t.Errorf("ednspad-256 AAAA response wire size=%d want >= 256", len(packedAAAA))
+		t.Errorf("setednspad-256.myip AAAA response wire size=%d want >= 256", len(packedAAAA))
 	}
 
-	// Invalid ednspad-N (below min) should be NXDOMAIN
-	req.SetQuestion("ednspad-99.example.com.", dns.TypeTXT)
+	// Invalid setednspad-99 (below min 128) should be NXDOMAIN when set-options only
+	req.SetQuestion("setednspad-99.example.com.", dns.TypeTXT)
 	msg2 := h.Handle(req, addr, "")
 	if msg2.Rcode != dns.RcodeNameError {
-		t.Errorf("ednspad-99 (below min): rcode=%d want NXDOMAIN", msg2.Rcode)
+		t.Errorf("setednspad-99 (below min): rcode=%d want NXDOMAIN", msg2.Rcode)
 	}
 }
 
@@ -802,6 +858,74 @@ func TestHandler_SetNoEDNS_TakesPriorityOverEDNSOptions(t *testing.T) {
 			t.Errorf("set-noedns must take priority: %q response must not include OPT", qname)
 		}
 	}
+}
+
+func TestHandler_SetNoCompress(t *testing.T) {
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	// Without set-nocompress: response is compressed (default)
+	req := new(dns.Msg)
+	req.SetQuestion("counter.example.com.", dns.TypeTXT)
+	req.SetEdns0(4096, false)
+	msgComp := h.Handle(req, addr, "")
+	h.FinalizeResponse(req, msgComp)
+	packedComp, err := msgComp.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// With set-nocompress: response must not be compressed, so wire is larger or equal
+	req2 := new(dns.Msg)
+	req2.SetQuestion("set-nocompress.counter.example.com.", dns.TypeTXT)
+	req2.SetEdns0(4096, false)
+	msgNoComp := h.Handle(req2, addr, "")
+	h.FinalizeResponse(req2, msgNoComp)
+	if msgNoComp.Compress {
+		t.Error("set-nocompress: msg.Compress should be false after FinalizeResponse")
+	}
+	packedNoComp, err := msgNoComp.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Uncompressed should be at least as large as compressed (usually larger when names repeat)
+	if len(packedNoComp) < len(packedComp) {
+		t.Errorf("set-nocompress wire size=%d should be >= compressed size=%d", len(packedNoComp), len(packedComp))
+	}
+}
+
+func TestHandler_Compression_Impressive(t *testing.T) {
+	// Build a response with many A records sharing the same long owner name to show strong compression.
+	// Query: 10x set-answer A records => same long qname repeated 10 times in Answer.
+	h := testHandler("example.com")
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	qname := "set-answer-1-0-0-1.set-answer-2-0-0-2.set-answer-3-0-0-3.set-answer-4-0-0-4.set-answer-5-0-0-5.example.com."
+	req := new(dns.Msg)
+	req.SetQuestion(qname, dns.TypeA)
+	req.SetEdns0(4096, false)
+	msg := h.Handle(req, addr, "")
+	h.FinalizeResponse(req, msg)
+	if len(msg.Answer) < 5 {
+		t.Fatalf("expected at least 5 A records, got %d", len(msg.Answer))
+	}
+	// Pack with compression (default)
+	msg.Compress = true
+	packedComp, err := msg.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Pack without compression (clone so we don't mutate)
+	msg2 := msg.Copy()
+	msg2.Compress = false
+	packedNoComp, err := msg2.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := len(packedNoComp) - len(packedComp)
+	if saved < 100 {
+		t.Errorf("compression should save at least 100 bytes (same name repeated %d times): saved=%d, compressed=%d, uncompressed=%d",
+			len(msg.Answer), saved, len(packedComp), len(packedNoComp))
+	}
+	t.Logf("compression: %d bytes (uncompressed) -> %d bytes (compressed), saved %d bytes (%.0f%%)",
+		len(packedNoComp), len(packedComp), saved, 100*float64(saved)/float64(len(packedNoComp)))
 }
 
 func TestHandler_CH_HostnameBind(t *testing.T) {

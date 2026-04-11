@@ -139,7 +139,7 @@ const indexHTML = `<!DOCTYPE html>
 	<div class="set-options-group">
 	<div class="endpoint">
 		<h2>Stacking set-options <span class="type-badge">TXT</span></h2>
-		<p>You can combine multiple set-options in one query by listing them left to right. All apply: e.g. <code>set-cookie-*</code> (hex value), <code>set-ede-*</code>, <code>set-nsid-*</code>, <code>set-noedns</code>, <code>set-flags-*</code>, <code>set-rcode-*</code>, <code>set-status-*</code>, <code>set-id-*</code>, <code>set-ttl-N</code>, <code>set-delay-*</code>, <code>set-answer-*</code>. Example: <code>set-cookie-616263.set-ttl-20.counter.__ZONE__</code> sets the EDNS cookie (hex 616263), the response TTL to 20, and returns the counter gadget. <strong>Exception:</strong> <code>set-noedns</code> always wins—when present, the response will have no OPT record even if other set-options (e.g. <code>set-cookie-*</code>, <code>set-nsid-*</code>) or client NSID would normally add EDNS.</p>
+		<p>You can combine multiple set-options in one query by listing them left to right. All apply: e.g. <code>set-cookie-*</code> (hex value), <code>set-ede-*</code>, <code>set-nsid-*</code>, <code>set-noedns</code>, <code>set-nocompress</code>, <code>setednspad-N</code>, <code>set-flags-*</code>, <code>set-rcode-*</code>, <code>set-status-*</code>, <code>set-id-*</code>, <code>set-ttl-N</code>, <code>set-delay-*</code>, <code>set-answer-*</code>. Example: <code>set-cookie-616263.set-ttl-20.counter.__ZONE__</code> sets the EDNS cookie (hex 616263), the response TTL to 20, and returns the counter gadget. <strong>Exception:</strong> <code>set-noedns</code> always wins—when present, the response will have no OPT record even if other set-options (e.g. <code>set-cookie-*</code>, <code>set-nsid-*</code>) or client NSID would normally add EDNS.</p>
 		<pre>dig set-ttl-60.counter.__ZONE__ TXT</pre>
 		<pre>dig set-rcode-3.set-id-0x1234.__ZONE__ TXT</pre>
 		<pre>dig set-cookie-78797a.set-ede-5-foo.mytoken.diag.__ZONE__ TXT</pre>
@@ -174,6 +174,14 @@ const indexHTML = `<!DOCTYPE html>
 		<pre>dig set-noedns.__ZONE__ TXT</pre>
 		<pre>dig set-noedns.myip.__ZONE__ A</pre>
 		<pre>dig set-noedns.set-cookie-616263.__ZONE__ TXT</pre>
+	</div>
+
+	<div class="endpoint">
+		<h2>set-nocompress</h2>
+		<p>Send the response without RFC 1035 label compression. The response is logically identical but uses more wire space (repeated names are not replaced by pointers). Use to test that resolvers accept uncompressed responses, or to compare compressed vs uncompressed size.</p>
+		<pre>dig set-nocompress.counter.__ZONE__ TXT</pre>
+		<pre>dig set-nocompress.myip.__ZONE__ A</pre>
+		<p>See <code>examples/compression-example.md</code> for a compression size comparison.</p>
 	</div>
 
 	<div class="endpoint">
@@ -233,11 +241,10 @@ const indexHTML = `<!DOCTYPE html>
 	</div>
 
 	<div class="endpoint">
-		<h2>ednspad-N <span class="type-badge">A / AAAA / TXT</span></h2>
-		<p>Response wire size approximately N bytes (128–4096). Uses EDNS padding on all record types.</p>
-		<pre>dig ednspad-256.__ZONE__ A</pre>
-		<pre>dig ednspad-256.__ZONE__ AAAA</pre>
-		<pre>dig ednspad-256.__ZONE__ TXT</pre>
+		<h2>setednspad-N</h2>
+		<p>Pad the response with EDNS padding so the wire size is at least N bytes (128–4096). Stack with any gadget or set-option, e.g. <code>setednspad-256.counter.__ZONE__</code> returns the counter with padding; <code>setednspad-512.myip.__ZONE__</code> returns your IP with a 512-byte response.</p>
+		<pre>dig setednspad-256.counter.__ZONE__ TXT</pre>
+		<pre>dig setednspad-512.myip.__ZONE__ A</pre>
 	</div>
 
 	<div class="endpoint">

@@ -6,7 +6,7 @@ Notes for people working on gadget-dns-server.
 
 The project uses [prek](https://prek.j178.dev/) with `.pre-commit-config.yaml` to run **go fmt**, **go vet**, and **staticcheck** before each commit.
 
-1. Install [prek](https://prek.j178.dev/installation/) and ensure `staticcheck` is on your PATH (e.g. `go install honnef.co/go/tools/cmd/staticcheck@latest`).
+1. Install [prek](https://prek.j178.dev/installation/). The hook runs staticcheck via `go run honnef.co/go/tools/cmd/staticcheck@latest` so it matches `go.mod`’s `toolchain` and you do not need a separate `staticcheck` on PATH (optional: `go install honnef.co/go/tools/cmd/staticcheck@latest` for manual runs).
 2. Install the git hooks: `prek install -f`
 3. Hooks run automatically on `git commit`. To run manually: `prek run` or `prek run --all-files`
 
